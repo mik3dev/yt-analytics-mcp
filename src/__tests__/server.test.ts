@@ -383,6 +383,60 @@ describe("yt_top_videos", () => {
   });
 });
 
+describe("content_type", () => {
+  // Verified live 2026-09-25: creatorContentType==shorts filters channel totals,
+  // traffic sources (with and without video==), and the video ranking; the
+  // upper-case SHORTS is a 400 "Invalid value".
+  it("filters channel totals to one content type and echoes it", async () => {
+    const out = parse(
+      await call("yt_channel_overview", { ...WINDOW, metrics: ["views"], content_type: "shorts" }),
+    );
+    expect(fake.reportCalls[0]).toEqual({
+      startDate: "2026-07-06",
+      endDate: "2026-08-05",
+      metrics: ["views"],
+      dimensions: undefined,
+      filters: ["creatorContentType==shorts"],
+      sort: undefined,
+    });
+    expect(out.contentType).toBe("shorts");
+  });
+
+  it("must-pass control: no content_type, no filters and no contentType key", async () => {
+    const out = parse(await call("yt_channel_overview", { ...WINDOW, metrics: ["views"] }));
+    expect(fake.reportCalls[0].filters).toBeUndefined();
+    expect(out).not.toHaveProperty("contentType");
+  });
+
+  it("appends to the video filter on traffic sources, video first", async () => {
+    await call("yt_traffic_sources", { ...WINDOW, video_id: "9QQA4TZvEKU", content_type: "videoOnDemand" });
+    expect(fake.reportCalls[0].filters).toEqual(["video==9QQA4TZvEKU", "creatorContentType==videoOnDemand"]);
+  });
+
+  it("filters traffic sources channel-wide", async () => {
+    const out = parse(await call("yt_traffic_sources", { ...WINDOW, content_type: "shorts" }));
+    expect(fake.reportCalls[0].filters).toEqual(["creatorContentType==shorts"]);
+    expect(out.contentType).toBe("shorts");
+  });
+
+  it("filters the video ranking and keeps its mandatory sort", async () => {
+    await call("yt_top_videos", { ...WINDOW, resolve_titles: false, content_type: "liveStream" });
+    expect(fake.reportCalls[0].filters).toEqual(["creatorContentType==liveStream"]);
+    expect(fake.reportCalls[0].sort).toBe("-views");
+  });
+
+  it("must-pass control: the video ranking sends no filters by default", async () => {
+    await call("yt_top_videos", { ...WINDOW, resolve_titles: false });
+    expect(fake.reportCalls[0].filters).toBeUndefined();
+  });
+
+  it.each(["SHORTS", "Shorts", "short", "story"])("rejects %s at the schema boundary", async (bad) => {
+    const res = await call("yt_channel_overview", { ...WINDOW, content_type: bad });
+    expect(res.isError).toBe(true);
+    expect(fake.reportCalls).toEqual([]);
+  });
+});
+
 describe("yt_video_performance", () => {
   it("filters on a comma-joined ID list inside one clause", async () => {
     await call("yt_video_performance", {

@@ -76,6 +76,25 @@ Set `YT_ANALYTICS_CREDENTIALS_PATH` to use a different file.
 3. **Set the OAuth consent screen's publishing status to "In production" — click *Publish app*.** See the warning below; this is the step everyone skips.
 4. Run any standard `google-auth-oauthlib` installed-app flow requesting the scopes above and save the result to the path above. About ten lines of Python, one browser consent click.
 
+#### Or mint it with the bundled script
+
+No Python needed. From a clone of this repo:
+
+```bash
+npm ci && npm run build
+node scripts/auth.mjs --client ~/Downloads/client_secret_XXXX.json
+```
+
+It opens the browser, you pick the Google account (or brand account) that owns the channel, and it writes the credential to `~/.config/yt-analytics/<handle>.json` with mode `0600`. It then prints the Claude Desktop entry and the `claude mcp add` command for that file. Run it once per channel; each channel gets its own server entry.
+
+| Flag | Default |
+|---|---|
+| `--client` | `~/.config/yt-analytics/client_secret.json` |
+| `--out` | `~/.config/yt-analytics/<handle>.json` |
+| `--force` | ask before overwriting an existing file |
+
+It requests the two read-only scopes above, uses PKCE and a `state` check on a `127.0.0.1` loopback redirect, and never prints the tokens or the client secret. To revoke access, go to https://myaccount.google.com/permissions.
+
 > ### ⚠️ Publish the app, or your token dies in 7 days
 >
 > Google's OAuth documentation: *"A Google Cloud Platform project with an OAuth consent screen configured for an external user type and a publishing status of 'Testing' is issued a refresh token expiring in 7 days, unless the only OAuth scopes requested are a subset of name, email address, and user profile."*

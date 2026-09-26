@@ -22,13 +22,14 @@ It was built to run analytics for a podcast, which is why the playlist tooling i
 
 ## Tools
 
-Nine tools. Every one is a read.
+Ten tools. Every one is a read.
 
 | Tool | What it returns | API |
 |------|-----------------|-----|
 | `yt_channel_info` | Which channel the credential owns, with subscriber/view/video counts | `GET youtube/v3/channels?mine=true` |
 | `yt_channel_overview` | Views, watch time, avg duration/percentage, subs gained/lost, likes, comments, shares — as a total or a day/month series. Optional content_type (Shorts / regular uploads / live). | `reports.query` |
 | `yt_traffic_sources` | Views and watch time by how viewers arrived (search, suggested, external, Shorts feed, subscriptions, playlists…). Optional content_type (Shorts / regular uploads / live). | `reports.query` `insightTrafficSourceType` |
+| `yt_traffic_source_detail` | One traffic source broken into entries — search terms, external sites, referring channels, related videos (top 25) | `reports.query` `insightTrafficSourceDetail` |
 | `yt_top_videos` | Videos ranked by any core metric, with titles. Optional content_type (Shorts / regular uploads / live). | `reports.query` `video` |
 | `yt_video_performance` | Metrics for videos you name, and which of them had no activity | `reports.query` `video` + filter |
 | `yt_audience_retention` | The drop-off curve for one video, ~100 points sampled down | `reports.query` `elapsedVideoTimeRatio` |
@@ -38,7 +39,7 @@ Nine tools. Every one is a read.
 
 ### Side effects: there are none
 
-Every tool is `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`. All four hints are stated explicitly on all nine tools rather than left to defaults, because MCP's `destructiveHint` **defaults to true** — an omitted hint tells a client to raise a delete-grade consent prompt for reading a view count.
+Every tool is `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`. All four hints are stated explicitly on all ten tools rather than left to defaults, because MCP's `destructiveHint` **defaults to true** — an omitted hint tells a client to raise a delete-grade consent prompt for reading a view count.
 
 That is not just a labelling convention. The HTTP client in `src/client.ts` has no write path: every method is a GET, and `ids=channel==MINE` is hardcoded rather than accepted from any tool input, so no argument an agent can pass will point this server at another channel or change anything on yours. The e2e test asserts the exact annotation object on each tool from a real `tools/list`, and includes a control proving that assertion can go red.
 

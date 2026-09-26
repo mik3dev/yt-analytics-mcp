@@ -39,6 +39,7 @@ const EXPECTED_TOOLS = [
   "yt_geography",
   "yt_playlist_performance",
   "yt_top_videos",
+  "yt_traffic_source_detail",
   "yt_traffic_sources",
   "yt_video_performance",
 ] as const;
@@ -80,7 +81,7 @@ const byName = (n: string): ListedTool => {
 };
 
 describe("advertised tool surface", () => {
-  it("lists exactly the nine v0.1 tools, by name", () => {
+  it("lists exactly the advertised tools, by name", () => {
     expect(tools.map((t) => t.name).sort()).toEqual([...EXPECTED_TOOLS]);
   });
 

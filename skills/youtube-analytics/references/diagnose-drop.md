@@ -12,11 +12,15 @@ cause as one of four.
 2. **Format.** Same window with `split_by: "content_type"`: did one format
    drop or both?
 3. **By source.** `yt_traffic_sources` for "before" and "after".
-4. **By video.** `yt_top_videos` for both periods (`resolve_titles: true`).
-   Separate views from videos published in the period from views of older
-   videos.
-5. **New uploads' start.** `yt_episode_race` with the uploads of both
-   periods, `window_days` 7 — did new videos start weaker?
+4. **Uploads per period.** Take up to 50 candidate IDs from `yt_top_videos`
+   over the whole window (`max_results: 50`, `resolve_titles: true`), get
+   their publish dates with `yt_episode_race` in batches of at most 10 IDs,
+   and assign each upload to "before" or "after". Views from those uploads
+   vs. views from older videos tells new-upload reach from back-catalogue
+   decay.
+5. **New uploads' start.** `yt_episode_race` with at most 10 of those
+   uploads (the most recent of each period), `window_days: 7` — did new
+   videos start weaker?
 6. **Retention of new uploads.** `yt_video_performance` for them
    (averageViewPercentage) against the "before" uploads.
 7. **Classify** — name one, with its evidence:
@@ -37,3 +41,6 @@ cause as one of four.
 - A drop on day 1 of a new upload that never took off is reach, not
   channel decline.
 - Two causes can stack; name the primary one and mention the second.
+- `yt_top_videos` ranks by views, so a period's lowest-view uploads can be
+  missing from 50 candidates on a very busy channel — say so if the count
+  looks short.

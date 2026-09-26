@@ -30,7 +30,8 @@ channel's own history — say so when you use one.
   that is a reach problem, usually decided by the first seconds.
 - **The hook** — no single API metric. Read together: `engagedViews /
   views`, `audienceWatchRatio` at the first points of the curve, and
-  `relativeRetentionPerformance` near 0.1. Studio's "Viewed vs. swiped
+  `relativeRetentionPerformance` at ratio 0.10. Request the curve with
+  `sample_every: 1`; the default of 5 skips most of a Short's hook. Studio's "Viewed vs. swiped
   away" is the real number — ask for it.
 - **Retention** — averageViewPercentage near or above 100% is strong;
   well below ~70% means most viewers leave early.
@@ -71,6 +72,11 @@ estimate these — ask for them or list them under Data gaps.
   subscribersLost, and comments (the API refuses them there); the tool
   says so in `note`.
 - `group_by: "month"` needs whole months (first to last day).
+- `yt_audience_retention` returns nothing for a video under YouTube's
+  watch-time threshold — common for very small Shorts. That is a data gap,
+  not a zero.
+- `yt_top_videos` ranks by views and has no publish dates; get dates from
+  `yt_episode_race`, which takes at most 10 IDs per call.
 - Small samples: under ~100 views, one shared link can move every ratio.
   Say so.
 - Lifetime totals favour older videos; compare by age with

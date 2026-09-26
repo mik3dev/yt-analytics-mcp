@@ -38,8 +38,8 @@ Ambiguous? Ask one question, offering the two closest options.
    long-form column — never one by the other. A mixed channel is analysed
    per format with `content_type`.
 2. **Mind the lag.** Analytics lags 48–72 hours. Default `end_date` to three
-   days before today. A video younger than 7 days gets a provisional result,
-   labelled as provisional.
+   days before today. A video published fewer than 10 days ago has under 7
+   days of settled data: label its result provisional.
 3. **Pacific days.** Analytics days are US Pacific time. Mention it when a
    publish time falls near midnight UTC and dates look off by one.
 4. **Compare by age.** Compare videos by days since publish

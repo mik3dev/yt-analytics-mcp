@@ -34,5 +34,6 @@ period, and one change to make.
 - Concentration: share of views from the top video. One video carrying
   most of the period hides a weak baseline.
 - Source shifts: a source whose share moved by more than a few points.
-- Upload count in each period (from `yt_top_videos` publish dates via
-  `yt_episode_race` if needed) — fewer uploads alone can explain a drop.
+- Upload count in each period — take up to 50 IDs from `yt_top_videos`
+  (`max_results: 50`) and their publish dates from `yt_episode_race` in
+  batches of at most 10 IDs. Fewer uploads alone can explain a drop.

@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { DATA_SCOPE } from "./auth.js";
+import { DEFAULT_CREDENTIAL_PATH } from "./auth.js";
 import type { YouTubeClient } from "./client.js";
 import { CredentialMissingError, ScopeError } from "./errors.js";
 import {
@@ -268,13 +269,14 @@ const TITLE_QUOTA_NOTE =
 export function createServer(
   client: YouTubeClient | null,
   hasDataScope = false,
+  credentialPath: string = DEFAULT_CREDENTIAL_PATH,
 ): McpServer {
   const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
 
   /** Resolve the client or raise a per-tool setup error if none is configured. */
   function need(): YouTubeClient {
     if (!client) {
-      throw new CredentialMissingError("~/.config/gws/youtube_credentials.json");
+      throw new CredentialMissingError(credentialPath);
     }
     return client;
   }

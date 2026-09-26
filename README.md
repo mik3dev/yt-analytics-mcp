@@ -108,6 +108,19 @@ It requests the two read-only scopes above, uses PKCE and a `state` check on a `
 
 The server boots and answers `tools/list` with no credential at all, so MCP inspectors can introspect it. Tool *calls* then return a setup pointer. Diagnostics go to stderr; stdout is the MCP transport and stays clean JSON-RPC.
 
+## Analysis skill
+
+`skills/youtube-analytics/` is an agent skill that turns these tools into
+four repeatable analyses — post-mortem of one video, channel review,
+comparing videos, and diagnosing a drop — for Shorts and long-form.
+
+- **Claude Code:** `ln -s "$PWD/skills/youtube-analytics" ~/.claude/skills/youtube-analytics`
+- **Claude Desktop:** `cd skills && zip -r ../youtube-analytics-skill.zip youtube-analytics`,
+  then Settings → Capabilities → Skills → upload the zip.
+
+It needs this MCP server connected; with several channels, register one
+server per channel and the skill asks which one to read.
+
 ## Setup
 
 Add to your MCP client config — `.mcp.json` for Claude Code, `claude_desktop_config.json` for Claude Desktop:

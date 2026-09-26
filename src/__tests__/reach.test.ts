@@ -169,6 +169,24 @@ describe("fetchReachJob / listReports", () => {
     ]);
   });
 
+  it("retries once on a transient 5xx", async () => {
+    // Seen live 2026-09-26: GET /jobs/{id}/reports answered 500 once, then 200.
+    const f = vi
+      .fn()
+      .mockResolvedValueOnce(json({ error: { message: "Internal error encountered." } }, 500))
+      .mockResolvedValueOnce(json({ jobs: [{ id: "j1", reportTypeId: "channel_reach_basic_a1" }] }));
+    vi.stubGlobal("fetch", f);
+    await expect(fetchReachJob(token)).resolves.toEqual({ id: "j1", reportTypeId: "channel_reach_basic_a1" });
+    expect(f).toHaveBeenCalledTimes(2);
+  });
+
+  it("must-not-retry: a 4xx fails on the first answer", async () => {
+    const f = vi.fn(async () => json({ error: { message: "API not enabled" } }, 403));
+    vi.stubGlobal("fetch", f);
+    await expect(fetchReachJob(token)).rejects.toThrow("Reporting API 403");
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+
   it("reports API errors with status and message", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => json({ error: { message: "API not enabled" } }, 403)));
     await expect(fetchReachJob(token)).rejects.toThrow("Reporting API 403 at /v1/jobs: API not enabled");

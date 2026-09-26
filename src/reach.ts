@@ -167,9 +167,12 @@ export function missingDays(present: string[], startDate: string, endDate: strin
 const SAFE_ID = /^[A-Za-z0-9_-]+$/;
 
 async function getJson<T>(token: TokenSource, url: string): Promise<T> {
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${await token()}`, Accept: "application/json" },
-  });
+  const get = async () =>
+    fetch(url, { headers: { Authorization: `Bearer ${await token()}`, Accept: "application/json" } });
+  let res = await get();
+  // The Reporting API answers an occasional transient 500 (seen live on
+  // 2026-09-26: 500, then 200 on the next call). One retry, 5xx only.
+  if (res.status >= 500) res = await get();
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
     throw new Error(`Reporting API ${res.status} at ${new URL(url).pathname}: ${body.error?.message ?? "no details"}`);

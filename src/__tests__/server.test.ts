@@ -538,6 +538,102 @@ describe("split_by", () => {
   });
 });
 
+describe("yt_traffic_source_detail", () => {
+  // Verified live 2026-09-25: insightTrafficSourceDetail needs an
+  // insightTrafficSourceType filter and an explicit -views sort, caps at 25
+  // rows (50 is a 500), and has no report for SHORTS, PLAYLIST, END_SCREEN,
+  // NOTIFICATION or CAMPAIGN_CARD.
+  it("sends the exact detail query for search terms", async () => {
+    await call("yt_traffic_source_detail", { ...WINDOW, source_type: "YT_SEARCH" });
+    expect(fake.reportCalls[0]).toEqual({
+      startDate: "2026-07-06",
+      endDate: "2026-08-05",
+      metrics: ["views", "estimatedMinutesWatched"],
+      dimensions: ["insightTrafficSourceDetail"],
+      filters: ["insightTrafficSourceType==YT_SEARCH"],
+      sort: "-views",
+      maxResults: 25,
+    });
+  });
+
+  it("scopes to a video and a content type, source first", async () => {
+    await call("yt_traffic_source_detail", {
+      ...WINDOW,
+      source_type: "EXT_URL",
+      video_id: "9QQA4TZvEKU",
+      content_type: "shorts",
+    });
+    expect(fake.reportCalls[0].filters).toEqual([
+      "insightTrafficSourceType==EXT_URL",
+      "video==9QQA4TZvEKU",
+      "creatorContentType==shorts",
+    ]);
+  });
+
+  it.each([
+    [0, 1],
+    [99, 25],
+    [10, 10],
+  ])("clamps max_results %i to %i", async (asked, sent) => {
+    await call("yt_traffic_source_detail", { ...WINDOW, source_type: "YT_SEARCH", max_results: asked });
+    expect(fake.reportCalls[0].maxResults).toBe(sent);
+  });
+
+  it("merges views in when the caller leaves it out, because the sort needs it", async () => {
+    await call("yt_traffic_source_detail", { ...WINDOW, source_type: "YT_SEARCH", metrics: ["engagedViews"] });
+    expect(fake.reportCalls[0].metrics).toEqual(["engagedViews", "views"]);
+  });
+
+  it.each(["SHORTS", "PLAYLIST", "END_SCREEN", "NOTIFICATION", "CAMPAIGN_CARD"])(
+    "rejects %s, which has no detail report",
+    async (source) => {
+      const res = await call("yt_traffic_source_detail", { ...WINDOW, source_type: source });
+      expect(res.isError).toBe(true);
+      expect(fake.reportCalls).toEqual([]);
+    },
+  );
+
+  it("rejects a video ID that could smuggle a filter clause", async () => {
+    const res = await call("yt_traffic_source_detail", {
+      ...WINDOW,
+      source_type: "YT_SEARCH",
+      video_id: "abc;video==x",
+    });
+    expect(res.isError).toBe(true);
+    expect(fake.reportCalls).toEqual([]);
+  });
+
+  it("returns rows with labelled computed shares", async () => {
+    fake.reportResponses = [
+      {
+        columnHeaders: [{ name: "insightTrafficSourceDetail" }, { name: "views" }, { name: "estimatedMinutesWatched" }],
+        rows: [
+          ["point nemo", 5, 1],
+          ["space facts", 4, 0],
+          ["what killed the dinosaurs", 1, 1],
+        ],
+      },
+    ];
+    const out = parse(
+      await call("yt_traffic_source_detail", { ...WINDOW, source_type: "YT_SEARCH", content_type: "shorts" }),
+    );
+    expect(out).toEqual({
+      window: { startDate: "2026-07-06", endDate: "2026-08-05" },
+      scope: { scope: "channel" },
+      sourceType: "YT_SEARCH",
+      contentType: "shorts",
+      totalViews: 10,
+      rowCount: 3,
+      computedFields: ["shareOfViews", "totalViews"],
+      rows: [
+        { insightTrafficSourceDetail: "point nemo", views: 5, estimatedMinutesWatched: 1, shareOfViews: 0.5 },
+        { insightTrafficSourceDetail: "space facts", views: 4, estimatedMinutesWatched: 0, shareOfViews: 0.4 },
+        { insightTrafficSourceDetail: "what killed the dinosaurs", views: 1, estimatedMinutesWatched: 1, shareOfViews: 0.1 },
+      ],
+    });
+  });
+});
+
 describe("yt_video_performance", () => {
   it("filters on a comma-joined ID list inside one clause", async () => {
     await call("yt_video_performance", {

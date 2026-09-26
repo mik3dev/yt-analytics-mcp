@@ -521,13 +521,20 @@ describe("yt_traffic_source_detail", () => {
       scope: { scope: "channel" },
       sourceType: "YT_SEARCH",
       contentType: "shorts",
-      totalViews: 10,
+      // The API returns at most 25 entries, so a sum over them is not the
+      // source's total; the names say what the numbers actually cover.
+      returnedViews: 10,
       rowCount: 3,
-      computedFields: ["shareOfViews", "totalViews"],
+      computedFields: ["shareOfReturnedViews", "returnedViews"],
       rows: [
-        { insightTrafficSourceDetail: "point nemo", views: 5, estimatedMinutesWatched: 1, shareOfViews: 0.5 },
-        { insightTrafficSourceDetail: "space facts", views: 4, estimatedMinutesWatched: 0, shareOfViews: 0.4 },
-        { insightTrafficSourceDetail: "what killed the dinosaurs", views: 1, estimatedMinutesWatched: 1, shareOfViews: 0.1 },
+        { insightTrafficSourceDetail: "point nemo", views: 5, estimatedMinutesWatched: 1, shareOfReturnedViews: 0.5 },
+        { insightTrafficSourceDetail: "space facts", views: 4, estimatedMinutesWatched: 0, shareOfReturnedViews: 0.4 },
+        {
+          insightTrafficSourceDetail: "what killed the dinosaurs",
+          views: 1,
+          estimatedMinutesWatched: 1,
+          shareOfReturnedViews: 0.1,
+        },
       ],
     });
   });

@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as auth from "./auth.mjs";
@@ -313,5 +315,29 @@ describe("shellQuote / claudeCodeCommand", () => {
       "claude mcp add yt-notobvious -e YT_ANALYTICS_CREDENTIALS_PATH=/Users/me/.config/yt-analytics/notobvious.json" +
         " -- /usr/local/bin/node '/Users/me/My Projects/yt-analytics-mcp/dist/index.js'",
     );
+  });
+});
+
+describe("direct execution", () => {
+  it.skipIf(process.platform === "win32")("runs main() when invoked through a symlink", () => {
+    const dir = mkdtempSync(join(tmpdir(), "yt-auth-link-"));
+    try {
+      const link = join(dir, "auth-link.mjs");
+      symlinkSync(fileURLToPath(new URL("./auth.mjs", import.meta.url)), link);
+      const r = spawnSync(process.execPath, [link, "--scopes", "x"], { encoding: "utf-8" });
+      expect(r.status).toBe(1);
+      expect(r.stderr).toBe("Error: Unknown option '--scopes'\n");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("startListener", () => {
+  it("delivers the full success page and resolves the code", async () => {
+    const { redirectUri, code } = await auth.startListener("s1", 5000);
+    const res = await fetch(`${redirectUri}?state=s1&code=abc`);
+    expect(await res.text()).toBe("Authorized. You can close this tab.");
+    await expect(code).resolves.toBe("abc");
   });
 });

@@ -9,7 +9,7 @@
 // src/auth.ts reads. The server itself still only ever reads that file.
 // Run once per channel; each file backs one MCP server entry.
 import { createHash, randomBytes } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeSync } from "node:fs";
 import { createServer } from "node:http";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -331,7 +331,16 @@ async function main() {
   if (!existsSync(serverPath)) console.log("\nRun npm run build before starting the server.");
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// Compare real paths: import.meta.url is resolved through symlinks, argv[1] is not.
+function isDirectRun() {
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (process.argv[1] && isDirectRun()) {
   main().catch((err) => {
     console.error(`Error: ${err.message}`);
     process.exit(1);

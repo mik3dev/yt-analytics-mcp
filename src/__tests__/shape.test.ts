@@ -4,6 +4,7 @@ import {
   alignToAge,
   daysBetween,
   isoDate,
+  pacificDate,
   round,
   stripNulls,
   toObjects,
@@ -135,6 +136,20 @@ describe("date arithmetic", () => {
 
   it("takes the date half of an ISO timestamp", () => {
     expect(isoDate("2026-07-06T16:00:23Z")).toBe("2026-07-06");
+  });
+
+  it("dates a publish timestamp in Pacific time, the timezone of Analytics days", () => {
+    // Verified live: a video published 2026-09-15T00:54:19Z has its first
+    // views in the Analytics `day` row 2026-09-14, not 2026-09-15.
+    expect(pacificDate("2026-09-15T00:54:19Z")).toBe("2026-09-14");
+    expect(pacificDate("2026-09-25T14:00:39Z")).toBe("2026-09-25");
+  });
+
+  it("follows US DST rather than a fixed offset", () => {
+    // PDT (UTC-7) after the 2026-03-08 spring-forward: a fixed -8 would say 03-08.
+    expect(pacificDate("2026-03-09T07:30:00Z")).toBe("2026-03-09");
+    // PST (UTC-8) after the 2026-11-01 fall-back: a fixed -7 would say 11-02.
+    expect(pacificDate("2026-11-02T07:30:00Z")).toBe("2026-11-01");
   });
 });
 

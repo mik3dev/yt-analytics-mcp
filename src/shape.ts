@@ -74,6 +74,26 @@ export function isoDate(timestamp: string): string {
   return timestamp.slice(0, 10);
 }
 
+const PACIFIC = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/Los_Angeles",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+/**
+ * The Pacific-time calendar date of an ISO 8601 timestamp, as YYYY-MM-DD.
+ *
+ * YouTube Analytics `day` rows are Pacific-time days, so a publish timestamp
+ * must be dated the same way before it is compared with them. Verified live:
+ * a video published 2026-09-15T00:54:19Z reports its first views under day
+ * 2026-09-14. `isoDate` (the UTC date) would put day 0 a day late and drop the
+ * publish-day views. `Intl` applies US DST, which a fixed offset would not.
+ */
+export function pacificDate(timestamp: string): string {
+  return PACIFIC.format(new Date(timestamp));
+}
+
 export interface DailyPoint {
   day: string;
   value: number;

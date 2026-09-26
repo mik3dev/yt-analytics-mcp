@@ -6,6 +6,8 @@
  * The Analytics API has no impressions or CTR (see AGENTS.md); the bulk
  * `channel_reach_basic_a1` report is the only programmatic source.
  */
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { addDays, pacificDate, round } from "./shape.js";
 
 export const REACH_REPORT_TYPE = "channel_reach_basic_a1";
@@ -160,4 +162,83 @@ export function missingDays(present: string[], startDate: string, endDate: strin
   return missing.length > MISSING_DAYS_CAP
     ? [...missing.slice(0, MISSING_DAYS_CAP), `… +${missing.length - MISSING_DAYS_CAP} more`]
     : missing;
+}
+
+const SAFE_ID = /^[A-Za-z0-9_-]+$/;
+
+async function getJson<T>(token: TokenSource, url: string): Promise<T> {
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${await token()}`, Accept: "application/json" },
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+    throw new Error(`Reporting API ${res.status} at ${new URL(url).pathname}: ${body.error?.message ?? "no details"}`);
+  }
+  return (await res.json()) as T;
+}
+
+export async function fetchReachJob(token: TokenSource): Promise<ReportingJob | null> {
+  const page = await getJson<{ jobs?: ReportingJob[] }>(token, `${REPORTING_BASE}/jobs`);
+  return pickReachJob(page.jobs ?? []);
+}
+
+export async function listReports(token: TokenSource, jobId: string): Promise<ReportMeta[]> {
+  const out: ReportMeta[] = [];
+  let pageToken: string | undefined;
+  do {
+    const url = new URL(`${REPORTING_BASE}/jobs/${encodeURIComponent(jobId)}/reports`);
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+    const page = await getJson<{ reports?: ReportMeta[]; nextPageToken?: string }>(token, url.toString());
+    out.push(...(page.reports ?? []));
+    pageToken = page.nextPageToken;
+  } while (pageToken);
+  return out;
+}
+
+export function reachCacheDir(credentialPath: string, jobId: string, env: NodeJS.ProcessEnv = process.env): string {
+  if (!SAFE_ID.test(jobId)) throw new Error(`Refusing unsafe report job id "${jobId.slice(0, 40)}".`);
+  return env.YT_ANALYTICS_CACHE_DIR
+    ? join(env.YT_ANALYTICS_CACHE_DIR, jobId)
+    : join(dirname(credentialPath), "reach", jobId);
+}
+
+/** Download reports not yet cached; returns the index of every safe report. */
+export async function syncReports(
+  token: TokenSource,
+  jobId: string,
+  cacheDir: string,
+): Promise<Omit<ReportMeta, "downloadUrl">[]> {
+  mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
+  const reports = (await listReports(token, jobId)).filter((r) => {
+    if (SAFE_ID.test(r.id)) return true;
+    console.error(`Skipping reach report with an unsafe id: ${r.id.slice(0, 40)}`);
+    return false;
+  });
+  for (const r of reports) {
+    const file = join(cacheDir, `${r.id}.csv`);
+    if (existsSync(file) || !r.downloadUrl) continue;
+    const url = assertDownloadUrl(r.downloadUrl);
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${await token()}` } });
+    if (!res.ok) throw new Error(`Reach report download failed (HTTP ${res.status}) for report ${r.id}.`);
+    writeFileSync(file, await res.text(), { mode: 0o600 });
+  }
+  const index = reports.map(({ id, startTime, endTime, createTime }) => ({ id, startTime, endTime, createTime }));
+  writeFileSync(join(cacheDir, "index.json"), JSON.stringify(index, null, 2) + "\n", { mode: 0o600 });
+  return index;
+}
+
+export function loadReachWindow(
+  cacheDir: string,
+  index: Omit<ReportMeta, "downloadUrl">[],
+  startDate: string,
+  endDate: string,
+): { rows: ReachRow[]; days: string[] } {
+  const chosen = latestPerDay(index).filter((r) => {
+    const day = reportDay(r);
+    return day >= startDate && day <= endDate && existsSync(join(cacheDir, `${r.id}.csv`));
+  });
+  return {
+    rows: chosen.flatMap((r) => parseReachCsv(readFileSync(join(cacheDir, `${r.id}.csv`), "utf-8"))),
+    days: chosen.map(reportDay),
+  };
 }

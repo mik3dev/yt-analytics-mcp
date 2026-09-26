@@ -43,3 +43,4 @@ Verify any new dimension/metric combination against the live API before wiring i
 - `impressions`, `impressionsCtr`, and unique viewers do not exist in the Analytics API, only in Studio.
 - Video-ranked reports require an explicit sort and cap at 200 rows; month grouping requires whole-month boundaries.
 - `creatorContentType` filter values are case-sensitive: `shorts` works, `SHORTS` is a 400 "Invalid value". The retention report rejects the filter entirely.
+- `subscribedStatus` refuses `subscribersGained`, `subscribersLost` and `comments` (each a 400 "The query is not supported"), and cannot be combined with the `video` dimension.

@@ -27,9 +27,9 @@ Nine tools. Every one is a read.
 | Tool | What it returns | API |
 |------|-----------------|-----|
 | `yt_channel_info` | Which channel the credential owns, with subscriber/view/video counts | `GET youtube/v3/channels?mine=true` |
-| `yt_channel_overview` | Views, watch time, avg duration/percentage, subs gained/lost, likes, comments, shares — as a total or a day/month series | `reports.query` |
-| `yt_traffic_sources` | Views and watch time by how viewers arrived (search, suggested, external, Shorts feed, subscriptions, playlists…) | `reports.query` `insightTrafficSourceType` |
-| `yt_top_videos` | Videos ranked by any core metric, with titles | `reports.query` `video` |
+| `yt_channel_overview` | Views, watch time, avg duration/percentage, subs gained/lost, likes, comments, shares — as a total or a day/month series. Optional content_type (Shorts / regular uploads / live). | `reports.query` |
+| `yt_traffic_sources` | Views and watch time by how viewers arrived (search, suggested, external, Shorts feed, subscriptions, playlists…). Optional content_type (Shorts / regular uploads / live). | `reports.query` `insightTrafficSourceType` |
+| `yt_top_videos` | Videos ranked by any core metric, with titles. Optional content_type (Shorts / regular uploads / live). | `reports.query` `video` |
 | `yt_video_performance` | Metrics for videos you name, and which of them had no activity | `reports.query` `video` + filter |
 | `yt_audience_retention` | The drop-off curve for one video, ~100 points sampled down | `reports.query` `elapsedVideoTimeRatio` |
 | `yt_geography` | Views and watch time by country, with each country's share | `reports.query` `country` |

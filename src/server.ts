@@ -185,6 +185,19 @@ export const TRAFFIC_METRICS = [
   "estimatedMinutesWatched",
 ] as const;
 
+/**
+ * Values of the `creatorContentType` filter. Lower-case exactly as listed: the
+ * API answers `creatorContentType==SHORTS` with 400 "Invalid value" (verified
+ * live 2026-09-25). `story` and the API's `creatorContentTypeUnspecified` row
+ * label are left out on purpose.
+ */
+export const CONTENT_TYPES = ["shorts", "videoOnDemand", "liveStream"] as const;
+
+/** The `creatorContentType` filter clause for an optional content type. */
+function contentTypeFilter(contentType: string | undefined): string[] {
+  return contentType ? [`creatorContentType==${contentType}`] : [];
+}
+
 /** Metrics the audience-retention report supports. */
 export const RETENTION_METRICS = [
   "audienceWatchRatio",
@@ -305,6 +318,13 @@ export function createServer(
       "End date, YYYY-MM-DD, inclusive. YouTube Analytics lags roughly 2-3 days, so " +
         "ending the range at today usually returns zeros for the last few days.",
     );
+  const contentTypeArg = z
+    .enum(CONTENT_TYPES)
+    .optional()
+    .describe(
+      "Optional: restrict to one kind of content — 'shorts', 'videoOnDemand' " +
+        "(regular uploads), or 'liveStream'. Omit to include everything.",
+    );
   const resolveTitlesArg = z
     .boolean()
     .optional()
@@ -408,10 +428,11 @@ export function createServer(
               "ranges short or use 'month'. 'month' requires start_date to be the " +
               "1st of a month and end_date to be a month's last day.",
           ),
+        content_type: contentTypeArg,
       },
       annotations: buildAnnotations("Channel performance over a date range"),
     },
-    guard(async ({ start_date, end_date, metrics, group_by }) => {
+    guard(async ({ start_date, end_date, metrics, group_by, content_type }) => {
       assertDate("start_date", start_date);
       assertDate("end_date", end_date);
       // Google rejects a month-grouped report whose range does not sit on month
@@ -427,11 +448,13 @@ export function createServer(
         endDate: group_by === "month" ? `${end_date.slice(0, 7)}-01` : end_date,
         metrics: [...metrics],
         dimensions,
+        filters: content_type ? contentTypeFilter(content_type) : undefined,
         sort: dimensions ? group_by : undefined,
       });
       const rows = toObjects(res);
       return json({
         window: { startDate: start_date, endDate: end_date },
+        ...(content_type ? { contentType: content_type } : {}),
         groupBy: group_by,
         rowCount: rows.length,
         rows,
@@ -460,6 +483,7 @@ export function createServer(
           .string()
           .optional()
           .describe("Optional: restrict to a single video's traffic instead of the whole channel."),
+        content_type: contentTypeArg,
         metrics: z
           .array(z.enum(TRAFFIC_METRICS))
           .optional()
@@ -470,10 +494,14 @@ export function createServer(
       },
       annotations: buildAnnotations("Where views came from"),
     },
-    guard(async ({ start_date, end_date, video_id, metrics }) => {
+    guard(async ({ start_date, end_date, video_id, content_type, metrics }) => {
       assertDate("start_date", start_date);
       assertDate("end_date", end_date);
-      const filters = video_id ? [`video==${assertVideoId(video_id)}`] : undefined;
+      const clauses = [
+        ...(video_id ? [`video==${assertVideoId(video_id)}`] : []),
+        ...contentTypeFilter(content_type),
+      ];
+      const filters = clauses.length ? clauses : undefined;
       const res = await need().report({
         startDate: start_date,
         endDate: end_date,
@@ -487,6 +515,7 @@ export function createServer(
       return json({
         window: { startDate: start_date, endDate: end_date },
         scope: video_id ? { videoId: video_id } : { scope: "channel" },
+        ...(content_type ? { contentType: content_type } : {}),
         totalViews,
         rowCount: rows.length,
         // shareOfViews and totalViews are this server's arithmetic over the
@@ -538,11 +567,12 @@ export function createServer(
           .optional()
           .default(10)
           .describe("How many videos to return, 1-200. Keep it low; rows cost tokens."),
+        content_type: contentTypeArg,
         resolve_titles: resolveTitlesArg,
       },
       annotations: buildAnnotations("Top videos by a metric"),
     },
-    guard(async ({ start_date, end_date, sort_by, metrics, max_results, resolve_titles }) => {
+    guard(async ({ start_date, end_date, sort_by, metrics, max_results, content_type, resolve_titles }) => {
       assertDate("start_date", start_date);
       assertDate("end_date", end_date);
       const capped = Math.min(Math.max(1, max_results), 200);
@@ -555,6 +585,7 @@ export function createServer(
         endDate: end_date,
         metrics: requested,
         dimensions: ["video"],
+        filters: content_type ? contentTypeFilter(content_type) : undefined,
         // A video-dimension report without a sort returns HTTP 400 "The query is
         // not supported" (verified live 2026-08-07), so this is never optional.
         sort: `-${sort_by}`,
@@ -565,6 +596,7 @@ export function createServer(
       const resolved = await resolveTitles(need(), ids, resolve_titles, hasDataScope);
       return json({
         window: { startDate: start_date, endDate: end_date },
+        ...(content_type ? { contentType: content_type } : {}),
         sortedBy: sort_by,
         rowCount: rows.length,
         note: resolved.note,

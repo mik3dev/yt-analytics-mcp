@@ -692,6 +692,36 @@ describe("assertMonthAligned", () => {
     expect(res.isError).toBeFalsy();
     expect(fake.reportCalls).toHaveLength(1);
   });
+
+  it("sends the first day of the last month as endDate, the only form the API accepts", async () => {
+    // Verified live 2026-09-25: dimensions=month with endDate 2026-08-31 returns
+    // 400 "Date range (2026-08-31) ... does not align to chosen date dimension";
+    // endDate 2026-08-01 returns both months. The input contract (last day of the
+    // month) stays, and only the request is translated.
+    await call("yt_channel_overview", {
+      start_date: "2026-07-01",
+      end_date: "2026-08-31",
+      group_by: "month",
+      metrics: ["views"],
+    });
+    expect(fake.reportCalls[0]).toEqual({
+      startDate: "2026-07-01",
+      endDate: "2026-08-01",
+      metrics: ["views"],
+      dimensions: ["month"],
+      sort: "month",
+    });
+  });
+
+  it("must-not-fire: day grouping keeps the caller's end date", async () => {
+    await call("yt_channel_overview", {
+      start_date: "2026-07-01",
+      end_date: "2026-08-31",
+      group_by: "day",
+      metrics: ["views"],
+    });
+    expect(fake.reportCalls[0].endDate).toBe("2026-08-31");
+  });
 });
 
 describe("yt_channel_info", () => {

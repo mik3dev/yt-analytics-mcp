@@ -421,7 +421,10 @@ export function createServer(
       const dimensions = group_by === "none" ? undefined : [group_by];
       const res = await need().report({
         startDate: start_date,
-        endDate: end_date,
+        // A month report names its last month by that month's first day; the
+        // month's real last day is rejected as misaligned (verified live
+        // 2026-09-25). The caller still passes the last day, which reads right.
+        endDate: group_by === "month" ? `${end_date.slice(0, 7)}-01` : end_date,
         metrics: [...metrics],
         dimensions,
         sort: dimensions ? group_by : undefined,

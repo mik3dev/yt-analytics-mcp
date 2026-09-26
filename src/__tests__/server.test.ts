@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { ReportQuery, YouTubeClient } from "../client.js";
+import { DEFAULT_CREDENTIAL_PATH } from "../auth.js";
 import { ScopeError } from "../errors.js";
 import {
   assertDate,
@@ -920,6 +921,22 @@ describe("without a credential", () => {
     expect(res.isError).toBe(true);
     expect(text(res)).toMatch(/youtube_credentials\.json/);
     expect(text(res)).toMatch(/yt-analytics\.readonly/);
+  });
+
+  it("names the credential path the server was actually given", async () => {
+    const server = createServer(null, true, "/custom/yt/chan.json");
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const mcp = new Client({ name: "server-test", version: "1.0.0" });
+    await Promise.all([server.connect(serverTransport), mcp.connect(clientTransport)]);
+    const res = (await mcp.callTool({ name: "yt_channel_info", arguments: {} })) as unknown as ToolCallResult;
+    expect(res.isError).toBe(true);
+    expect(text(res)).toContain("YouTube OAuth credential not found at /custom/yt/chan.json. ");
+    expect(text(res)).not.toContain(".config/gws");
+  });
+
+  it("names the default path when none is given", async () => {
+    const res = await call("yt_channel_info", {}, null);
+    expect(text(res)).toContain(`YouTube OAuth credential not found at ${DEFAULT_CREDENTIAL_PATH}. `);
   });
 });
 

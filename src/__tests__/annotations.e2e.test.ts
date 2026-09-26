@@ -38,6 +38,7 @@ const EXPECTED_TOOLS = [
   "yt_episode_race",
   "yt_geography",
   "yt_playlist_performance",
+  "yt_reach",
   "yt_top_videos",
   "yt_traffic_source_detail",
   "yt_traffic_sources",

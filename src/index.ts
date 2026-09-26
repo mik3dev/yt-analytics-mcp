@@ -52,7 +52,12 @@ async function main() {
   }
 
   const client = auth ? new YouTubeClient(auth) : null;
-  const server = createServer(client, auth?.hasDataScope() ?? false, credPath);
+  const server = createServer(
+    client,
+    auth?.hasDataScope() ?? false,
+    credPath,
+    auth ? () => auth.getAccessToken() : null,
+  );
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("YouTube Analytics MCP server running on stdio");

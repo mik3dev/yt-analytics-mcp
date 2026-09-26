@@ -3,6 +3,15 @@ import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { DATA_SCOPE } from "./auth.js";
 import { DEFAULT_CREDENTIAL_PATH } from "./auth.js";
+import {
+  aggregateReach,
+  fetchReachJob,
+  loadReachWindow,
+  missingDays,
+  reachCacheDir,
+  syncReports,
+  type TokenSource,
+} from "./reach.js";
 import type { YouTubeClient } from "./client.js";
 import { CredentialMissingError, ScopeError } from "./errors.js";
 import {
@@ -305,6 +314,7 @@ export function createServer(
   client: YouTubeClient | null,
   hasDataScope = false,
   credentialPath: string = DEFAULT_CREDENTIAL_PATH,
+  reachToken: TokenSource | null = null,
 ): McpServer {
   const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
 
@@ -682,6 +692,87 @@ export function createServer(
           shareOfReturnedViews:
             returnedViews > 0 ? round(Number(r.views ?? 0) / returnedViews, 4) : 0,
         })),
+      });
+    }),
+  );
+
+  // --- yt_reach (fork-only) ---
+
+  server.registerTool(
+    "yt_reach",
+    {
+      title: "Impressions and thumbnail CTR",
+      description:
+        "Thumbnail impressions and click-through rate per video, per day, or in total, " +
+        "from the YouTube Reporting API's channel_reach_basic_a1 report — numbers the " +
+        "Analytics API does not have. Needs a one-time report job (node " +
+        "scripts/reporting.mjs setup); data exists only from the job's start, first " +
+        "report 24–48 h later. CTR is impression-weighted. On Shorts thumbnail " +
+        "impressions barely apply: the Shorts feed shows no thumbnail.",
+      inputSchema: {
+        start_date: startDateArg,
+        end_date: endDateArg,
+        video_id: z.string().optional().describe("Optional: one video only."),
+        group_by: z
+          .enum(["video", "day", "none"])
+          .optional()
+          .default("video")
+          .describe("'video' (top 50 by impressions), 'day', or 'none' for one total."),
+        resolve_titles: resolveTitlesArg,
+      },
+      annotations: buildAnnotations("Impressions and thumbnail CTR"),
+    },
+    guard(async ({ start_date, end_date, video_id, group_by, resolve_titles }) => {
+      assertDate("start_date", start_date);
+      assertDate("end_date", end_date);
+      if (video_id) assertVideoId(video_id);
+      if (!reachToken) throw new CredentialMissingError(credentialPath);
+      const job = await fetchReachJob(reachToken);
+      if (!job) {
+        throw new Error(
+          "No reach report job for this channel. Run: node scripts/reporting.mjs setup (reports start 24–48 h later).",
+        );
+      }
+      const cacheDir = reachCacheDir(credentialPath, job.id);
+      const index = await syncReports(reachToken, job.id, cacheDir);
+      const { rows, days } = loadReachWindow(cacheDir, index, start_date, end_date);
+      const agg = aggregateReach(rows, { groupBy: group_by, videoId: video_id, startDate: start_date, endDate: end_date });
+
+      let out: Record<string, unknown>[];
+      if (group_by === "video") {
+        const top = [...agg].sort((a, b) => b.impressions - a.impressions).slice(0, 50);
+        const resolved = client
+          ? await resolveTitles(client, top.map((a) => a.key), resolve_titles, hasDataScope)
+          : { titles: new Map<string, string>() };
+        out = top.map(({ key, ...m }) => ({
+          videoId: key,
+          ...(resolved.titles.get(key) ? { title: resolved.titles.get(key) } : {}),
+          ...m,
+        }));
+      } else if (group_by === "day") {
+        out = agg.map(({ key, ...m }) => ({ day: key, ...m }));
+      } else {
+        out = agg.map(({ key: _key, ...m }) => m);
+      }
+      return json({
+        window: { startDate: start_date, endDate: end_date },
+        scope: video_id ? { videoId: video_id } : { scope: "channel" },
+        groupBy: group_by,
+        coverage: {
+          reportDays: days.length,
+          firstDay: days[0] ?? null,
+          lastDay: days[days.length - 1] ?? null,
+          missingDays: missingDays(days, start_date, end_date),
+        },
+        rowCount: out.length,
+        // Sums and the CTR weighting are this server's arithmetic over the
+        // report's own impressions and per-row CTR.
+        computedFields: ["impressions", "estimatedClicks", "impressionsCtr"],
+        note:
+          days.length === 0
+            ? "No reach report yet for this window. Reports start 24–48 h after the job is created and cover days from then on."
+            : `Reach data exists only from the report job's first day (${days[0]}). Thumbnail impressions barely apply to Shorts, whose feed shows no thumbnail.`,
+        rows: out,
       });
     }),
   );

@@ -1,4 +1,7 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { ReportQuery, YouTubeClient } from "../client.js";
@@ -1256,3 +1259,85 @@ function addDaysLocal(date: string, n: number): string {
     .toISOString()
     .slice(0, 10);
 }
+
+describe("yt_reach", () => {
+  const HEADER =
+    "date,channel_id,video_id,live_or_on_demand,subscribed_status,country_code," +
+    "video_thumbnail_impressions,video_thumbnail_impressions_ctr";
+  const MEDIA = "https://youtubereporting.googleapis.com/v1/media/CHANNEL/x/jobs/j1/reports/";
+  let cache: string;
+
+  beforeEach(() => {
+    cache = mkdtempSync(join(tmpdir(), "yt-reach-srv-"));
+    vi.stubEnv("YT_ANALYTICS_CACHE_DIR", cache);
+  });
+  afterEach(() => {
+    rmSync(cache, { recursive: true, force: true });
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  async function reachCall(args: Record<string, unknown>, fetchImpl: (u: string) => Response) {
+    vi.stubGlobal("fetch", vi.fn(async (u: string | URL) => fetchImpl(String(u))));
+    const server = createServer(fake.asClient(), true, "/x/cred.json", async () => "TOKEN");
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    const mcp = new Client({ name: "reach-test", version: "1.0.0" });
+    await Promise.all([server.connect(st), mcp.connect(ct)]);
+    return (await mcp.callTool({ name: "yt_reach", arguments: args })) as unknown as ToolCallResult;
+  }
+
+  it("tells the user to run setup when there is no reach job", async () => {
+    const res = await reachCall({ ...WINDOW }, () => new Response(JSON.stringify({ jobs: [] })));
+    expect(res.isError).toBe(true);
+    expect(text(res)).toContain(
+      "No reach report job for this channel. Run: node scripts/reporting.mjs setup (reports start 24–48 h later).",
+    );
+  });
+
+  it("answers before the first report exists with empty coverage", async () => {
+    const out = parse(
+      await reachCall({ start_date: "2026-09-25", end_date: "2026-09-26", resolve_titles: false }, (u) =>
+        u.endsWith("/jobs")
+          ? new Response(JSON.stringify({ jobs: [{ id: "j1", reportTypeId: "channel_reach_basic_a1" }] }))
+          : new Response(JSON.stringify({})),
+      ),
+    );
+    expect(out.coverage.reportDays).toBe(0);
+    expect(out.rowCount).toBe(0);
+    expect(out.note).toContain("No reach report yet");
+  });
+
+  it("returns impression-weighted CTR per video with labelled computed fields", async () => {
+    fake.videoResponse = { items: [{ id: "vidB", snippet: { title: "B", publishedAt: "2026-09-20T00:00:00Z" } }] };
+    const out = parse(
+      await reachCall({ start_date: "2026-09-25", end_date: "2026-09-25" }, (u) => {
+        if (u.endsWith("/jobs")) return new Response(JSON.stringify({ jobs: [{ id: "j1", reportTypeId: "channel_reach_basic_a1" }] }));
+        if (u.includes("/jobs/j1/reports") && !u.includes("/media/"))
+          return new Response(JSON.stringify({ reports: [{ id: "r1", startTime: "2026-09-25T07:00:00Z", endTime: "2026-09-26T07:00:00Z", createTime: "2026-09-27T01:00:00Z", downloadUrl: `${MEDIA}r1?alt=media` }] }));
+        return new Response(
+          `${HEADER}\n20260925,UC1,vidA,on_demand,UNSUBSCRIBED,US,1000,0.05\n20260925,UC1,vidB,on_demand,UNSUBSCRIBED,US,3000,0.01\n`,
+        );
+      }),
+    );
+    expect(out.computedFields).toEqual(["impressions", "estimatedClicks", "impressionsCtr"]);
+    expect(out.coverage).toEqual({ reportDays: 1, firstDay: "2026-09-25", lastDay: "2026-09-25", missingDays: [] });
+    expect(out.rows).toEqual([
+      { videoId: "vidB", title: "B", impressions: 3000, estimatedClicks: 30, impressionsCtr: 0.01 },
+      { videoId: "vidA", impressions: 1000, estimatedClicks: 50, impressionsCtr: 0.05 },
+    ]);
+  });
+
+  it("rejects a smuggled video id", async () => {
+    const res = await reachCall({ ...WINDOW, video_id: "a;video==b" }, () => new Response("{}"));
+    expect(res.isError).toBe(true);
+  });
+
+  it("without a credential answers with the setup pointer", async () => {
+    const server = createServer(null, false, "/custom/c.json");
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    const mcp = new Client({ name: "reach-test", version: "1.0.0" });
+    await Promise.all([server.connect(st), mcp.connect(ct)]);
+    const res = (await mcp.callTool({ name: "yt_reach", arguments: { ...WINDOW } })) as unknown as ToolCallResult;
+    expect(text(res)).toContain("YouTube OAuth credential not found at /custom/c.json.");
+  });
+});

@@ -250,3 +250,68 @@ describe("writeCredential", () => {
     expect(readdirSync(dir)).toEqual(["chan.json"]);
   });
 });
+
+describe("parseCliArgs", () => {
+  it("applies defaults", () => {
+    expect(auth.parseCliArgs([])).toEqual({ client: join(auth.DEFAULT_DIR, "client_secret.json"), out: undefined, force: false });
+  });
+  it("reads every flag", () => {
+    expect(auth.parseCliArgs(["--client", "/c.json", "--out", "/o.json", "--force"])).toEqual({ client: "/c.json", out: "/o.json", force: true });
+  });
+  it("rejects unknown flags", () => {
+    expect(() => auth.parseCliArgs(["--scopes", "x"])).toThrow(/Unknown option '--scopes'/);
+  });
+  it("rejects positional arguments", () => {
+    expect(() => auth.parseCliArgs(["mychannel"])).toThrow(/Unexpected argument 'mychannel'/);
+  });
+});
+
+const SNIP = {
+  name: "yt-notobvious",
+  nodePath: "/usr/local/bin/node",
+  serverPath: "/Users/me/My Projects/yt-analytics-mcp/dist/index.js",
+  credPath: "/Users/me/.config/yt-analytics/notobvious.json",
+};
+
+describe("desktopSnippet", () => {
+  it("renders the exact mcpServers entry", () => {
+    expect(auth.desktopSnippet(SNIP)).toBe(
+      [
+        '"yt-notobvious": {',
+        '  "command": "/usr/local/bin/node",',
+        '  "args": [',
+        '    "/Users/me/My Projects/yt-analytics-mcp/dist/index.js"',
+        "  ],",
+        '  "env": {',
+        '    "YT_ANALYTICS_CREDENTIALS_PATH": "/Users/me/.config/yt-analytics/notobvious.json"',
+        "  }",
+        "}",
+      ].join("\n"),
+    );
+  });
+  it("escapes Windows backslashes into valid JSON", () => {
+    const snip = auth.desktopSnippet({ ...SNIP, nodePath: "C:\\Program Files\\nodejs\\node.exe", credPath: "C:\\Users\\me\\x.json" });
+    expect(JSON.parse(`{${snip}}`)).toEqual({
+      "yt-notobvious": {
+        command: "C:\\Program Files\\nodejs\\node.exe",
+        args: [SNIP.serverPath],
+        env: { YT_ANALYTICS_CREDENTIALS_PATH: "C:\\Users\\me\\x.json" },
+      },
+    });
+  });
+});
+
+describe("shellQuote / claudeCodeCommand", () => {
+  it("leaves safe strings bare", () => {
+    expect(auth.shellQuote("/usr/local/bin/node")).toBe("/usr/local/bin/node");
+  });
+  it("single-quotes strings with spaces or quotes", () => {
+    expect(auth.shellQuote("/a b/it's")).toBe("'/a b/it'\\''s'");
+  });
+  it("renders the exact claude mcp add command", () => {
+    expect(auth.claudeCodeCommand(SNIP)).toBe(
+      "claude mcp add yt-notobvious -e YT_ANALYTICS_CREDENTIALS_PATH=/Users/me/.config/yt-analytics/notobvious.json" +
+        " -- /usr/local/bin/node '/Users/me/My Projects/yt-analytics-mcp/dist/index.js'",
+    );
+  });
+});

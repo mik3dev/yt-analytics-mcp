@@ -9,10 +9,14 @@
 // src/auth.ts reads. The server itself still only ever reads that file.
 // Run once per channel; each file backs one MCP server entry.
 import { createHash, randomBytes } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, openSync, renameSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from "node:fs";
 import { createServer } from "node:http";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { spawn } from "node:child_process";
+import { createInterface } from "node:readline/promises";
+import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
 
 export const SCOPES = [
   "https://www.googleapis.com/auth/yt-analytics.readonly",
@@ -225,4 +229,111 @@ export async function writeCredential(path, credential, { force = false, confirm
     try { unlinkSync(tmp); } catch {}
     throw err;
   }
+}
+
+export function parseCliArgs(argv) {
+  const { values } = parseArgs({
+    args: argv,
+    options: {
+      client: { type: "string" },
+      out: { type: "string" },
+      force: { type: "boolean", default: false },
+    },
+    strict: true,
+    allowPositionals: false,
+  });
+  return { client: values.client ?? join(DEFAULT_DIR, "client_secret.json"), out: values.out, force: values.force };
+}
+
+// ponytail: POSIX quoting only; Windows users paste the Desktop JSON instead.
+export function shellQuote(s) {
+  return /^[A-Za-z0-9_\/.:=@%+,-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`;
+}
+
+export function desktopSnippet({ name, nodePath, serverPath, credPath }) {
+  const entry = { command: nodePath, args: [serverPath], env: { YT_ANALYTICS_CREDENTIALS_PATH: credPath } };
+  return `${JSON.stringify(name)}: ${JSON.stringify(entry, null, 2)}`;
+}
+
+export function claudeCodeCommand({ name, nodePath, serverPath, credPath }) {
+  return (
+    `claude mcp add ${name} -e ${shellQuote(`YT_ANALYTICS_CREDENTIALS_PATH=${credPath}`)}` +
+    ` -- ${shellQuote(nodePath)} ${shellQuote(serverPath)}`
+  );
+}
+
+function openBrowser(url) {
+  // rundll32 on Windows: `cmd /c start` would split the URL at every `&`.
+  const [cmd, args] =
+    process.platform === "darwin" ? ["open", [url]]
+    : process.platform === "win32" ? ["rundll32", ["url.dll,FileProtocolHandler", url]]
+    : ["xdg-open", [url]];
+  try {
+    spawn(cmd, args, { stdio: "ignore", detached: true }).on("error", () => {}).unref();
+  } catch {
+    // The URL is printed too; a missing opener is not fatal.
+  }
+}
+
+async function askYesNo(question) {
+  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    return /^y(es)?$/i.test((await rl.question(question)).trim());
+  } finally {
+    rl.close();
+  }
+}
+
+const indent = (text) => text.split("\n").map((l) => `  ${l}`).join("\n");
+
+async function main() {
+  const args = parseCliArgs(process.argv.slice(2));
+
+  let clientText;
+  try {
+    clientText = readFileSync(args.client, "utf-8");
+  } catch {
+    throw new Error(`Client file not found: ${args.client}`);
+  }
+  let client;
+  try {
+    client = parseClientFile(clientText);
+  } catch (err) {
+    throw new Error(`${args.client}: ${err.message}`);
+  }
+
+  const state = randomBytes(32).toString("base64url");
+  const verifier = randomBytes(64).toString("base64url");
+  const { redirectUri, code } = await startListener(state);
+  const url = buildAuthUrl({ clientId: client.clientId, redirectUri, state, challenge: pkceChallenge(verifier) });
+  console.log(`Opening the browser to authorize. If it does not open, visit:\n${url}\n`);
+  openBrowser(url);
+
+  const tokens = await exchangeCode({ ...client, code: await code, redirectUri, verifier });
+  const channel = await fetchChannel(tokens.accessToken);
+  console.log(`Authorized: ${channel.title} (${channel.customUrl || channel.id})`);
+
+  const name = credentialFileName(channel.customUrl, channel.id);
+  const credPath = resolve(args.out ?? join(DEFAULT_DIR, `${name}.json`));
+  await writeCredential(
+    credPath,
+    buildCredential({ clientId: client.clientId, clientSecret: client.clientSecret, refreshToken: tokens.refreshToken }),
+    { force: args.force, confirm: process.stdin.isTTY ? askYesNo : undefined },
+  );
+
+  const serverPath = fileURLToPath(new URL("../dist/index.js", import.meta.url));
+  const snippet = { name: `yt-${name}`, nodePath: process.execPath, serverPath, credPath };
+  console.log(`\nSaved credential: ${credPath}\n`);
+  console.log('Claude Desktop — add to claude_desktop_config.json under "mcpServers":');
+  console.log(indent(desktopSnippet(snippet)));
+  console.log("\nClaude Code:");
+  console.log(indent(claudeCodeCommand(snippet)));
+  if (!existsSync(serverPath)) console.log("\nRun npm run build before starting the server.");
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((err) => {
+    console.error(`Error: ${err.message}`);
+    process.exit(1);
+  });
 }

@@ -95,3 +95,40 @@ describe("credentialFileName", () => {
     expect(auth.credentialFileName("@ñ", "UC1")).toBe("UC1");
   });
 });
+
+describe("handleCallback", () => {
+  it("returns the code on a valid callback", () => {
+    expect(auth.handleCallback("/callback?state=s1&code=abc", "s1")).toEqual({
+      status: 200,
+      body: "Authorized. You can close this tab.",
+      outcome: { code: "abc" },
+    });
+  });
+  it("ignores other paths without ending the flow (favicon)", () => {
+    expect(auth.handleCallback("/favicon.ico", "s1")).toEqual({ status: 404, body: "Not found", outcome: null });
+  });
+  it("aborts on a state mismatch", () => {
+    expect(auth.handleCallback("/callback?state=evil&code=abc", "s1")).toEqual({
+      status: 400,
+      body: "State mismatch. Close this tab and run the script again.",
+      outcome: { error: "State mismatch in the OAuth callback. Run the script again." },
+    });
+  });
+  it("reports declined consent", () => {
+    expect(auth.handleCallback("/callback?state=s1&error=access_denied", "s1")).toEqual({
+      status: 200,
+      body: "Consent was declined. You can close this tab.",
+      outcome: { error: "Consent was declined." },
+    });
+  });
+  it("reports other Google errors verbatim", () => {
+    expect(auth.handleCallback("/callback?state=s1&error=invalid_scope", "s1").outcome).toEqual({
+      error: "Google returned an error: invalid_scope",
+    });
+  });
+  it("aborts when the code is missing", () => {
+    expect(auth.handleCallback("/callback?state=s1", "s1").outcome).toEqual({
+      error: "The callback had no authorization code.",
+    });
+  });
+});

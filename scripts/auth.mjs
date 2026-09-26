@@ -9,6 +9,7 @@
 // src/auth.ts reads. The server itself still only ever reads that file.
 // Run once per channel; each file backs one MCP server entry.
 import { createHash } from "node:crypto";
+import { createServer } from "node:http";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -88,4 +89,72 @@ export function credentialFileName(customUrl, channelId) {
     .replace(/[^a-z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return name || channelId;
+}
+
+const TIMEOUT_MS = 5 * 60 * 1000;
+
+/** Decide the response to one loopback request. `outcome: null` = keep waiting. */
+export function handleCallback(requestUrl, expectedState) {
+  const url = new URL(requestUrl, "http://127.0.0.1");
+  if (url.pathname !== "/callback") {
+    return { status: 404, body: "Not found", outcome: null };
+  }
+  if (url.searchParams.get("state") !== expectedState) {
+    return {
+      status: 400,
+      body: "State mismatch. Close this tab and run the script again.",
+      outcome: { error: "State mismatch in the OAuth callback. Run the script again." },
+    };
+  }
+  const error = url.searchParams.get("error");
+  if (error) {
+    return {
+      status: 200,
+      body: "Consent was declined. You can close this tab.",
+      outcome: { error: error === "access_denied" ? "Consent was declined." : `Google returned an error: ${error}` },
+    };
+  }
+  const code = url.searchParams.get("code");
+  if (!code) {
+    return { status: 400, body: "Missing code.", outcome: { error: "The callback had no authorization code." } };
+  }
+  return { status: 200, body: "Authorized. You can close this tab.", outcome: { code } };
+}
+
+/**
+ * Listen on 127.0.0.1 at an OS-chosen port. Resolves once listening with the
+ * redirect URI and a promise for the authorization code.
+ */
+export function startListener(state, timeoutMs = TIMEOUT_MS) {
+  return new Promise((resolveStart, rejectStart) => {
+    let settle;
+    const code = new Promise((res, rej) => {
+      settle = { res, rej };
+    });
+    const finish = () => {
+      clearTimeout(timer);
+      server.close();
+      server.closeAllConnections();
+    };
+    const server = createServer((req, res) => {
+      const r = handleCallback(req.url ?? "/", state);
+      res.writeHead(r.status, { "Content-Type": "text/plain; charset=utf-8", Connection: "close" });
+      res.end(r.body);
+      if (!r.outcome) return;
+      finish();
+      if ("error" in r.outcome) settle.rej(new Error(r.outcome.error));
+      else settle.res(r.outcome.code);
+    });
+    const timer = setTimeout(() => {
+      finish();
+      settle.rej(new Error("No response from the browser within 5 minutes."));
+    }, timeoutMs);
+    server.on("error", (err) => {
+      clearTimeout(timer);
+      rejectStart(err);
+    });
+    server.listen(0, "127.0.0.1", () => {
+      resolveStart({ redirectUri: `http://127.0.0.1:${server.address().port}/callback`, code });
+    });
+  });
 }

@@ -68,6 +68,9 @@ Studio.
 
 - Data lags 48–72 hours; the last days of any range look low.
 - Days are US Pacific time.
+- Search-term detail omits low-volume terms (YouTube's privacy threshold):
+  on a small channel the listed terms can cover a fraction of `YT_SEARCH`
+  views (seen: 11 of 46). Read them as examples of intent, not a breakdown.
 - `yt_traffic_source_detail` returns the top 25 entries at most;
   `shareOfReturnedViews` is a share of those entries, not of the source.
   Compare against `yt_traffic_sources` for the source's real total.

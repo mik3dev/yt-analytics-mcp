@@ -10,6 +10,8 @@ the gap.
    one format, `max_results: 50`, `resolve_titles: true`), get their publish
    dates with `yt_episode_race` in batches of at most 10 IDs, and keep the N
    most recent (N ≤ 10). One format per comparison; if formats mix, make two.
+   Leave out videos younger than 3 days: the shared age falls to the
+   youngest video's, and day 0 alone says little — list them as "too new".
 2. **Race.** `yt_episode_race` with the IDs, metric `views`, `window_days`
    = the youngest video's age (max 90). Report the leaderboard at
    `comparableAtDay`, not totals.
@@ -35,3 +37,6 @@ the gap.
   it from the curve, and from the titles only as a hypothesis.
 - Rank at the shared age can disagree with lifetime totals; when it does,
   that disagreement is the finding.
+- Day 0 depends on the publish hour: a video published in the Pacific
+  evening gets only a few hours on day 0 and its views land on day 1. Read
+  day 0 + day 1 together before calling a slow start.

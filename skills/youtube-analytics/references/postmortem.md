@@ -38,8 +38,10 @@ next video.
    format from `yt_top_videos` (`content_type`, last 90 days,
    `max_results: 50`). Get their publish dates with `yt_episode_race` in
    batches of at most 10 IDs. Race this video against the 3–5 published
-   just before it, `window_days` = this video's age (max 28). Where does it
-   rank at the shared age?
+   just before it, `window_days` = this video's age (max 28), leaving out
+   any younger than 3 days. Where does it rank at the shared age? With fewer
+   than 3 peers, say the comparison is weak rather than drawing a ranking
+   conclusion from it.
 9. **Studio-only numbers.** If `yt_reach` has coverage for the window, take
    impressions and CTR from it (`group_by: "video"`, `video_id`) and ask
    Studio only for what is still missing. Otherwise ask once: Shorts → "Viewed vs. swiped away" %;

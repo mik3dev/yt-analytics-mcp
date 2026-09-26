@@ -733,6 +733,7 @@ export function createServer(
           "No reach report job for this channel. Run: node scripts/reporting.mjs setup (reports start 24–48 h later).",
         );
       }
+      const jobStart = job.createTime ? pacificDate(job.createTime) : undefined;
       const cacheDir = reachCacheDir(credentialPath, job.id);
       const index = await syncReports(reachToken, job.id, cacheDir);
       const { rows, days } = loadReachWindow(cacheDir, index, start_date, end_date);
@@ -762,7 +763,8 @@ export function createServer(
           reportDays: days.length,
           firstDay: days[0] ?? null,
           lastDay: days[days.length - 1] ?? null,
-          missingDays: missingDays(days, start_date, end_date),
+          // Days before the job existed can never have a report; they are not "missing".
+          missingDays: missingDays(days, jobStart && jobStart > start_date ? jobStart : start_date, end_date),
         },
         rowCount: out.length,
         // Sums and the CTR weighting are this server's arithmetic over the

@@ -1307,6 +1307,37 @@ describe("yt_reach", () => {
     expect(out.note).toContain("No reach report yet");
   });
 
+  it("does not count days before the job existed as missing", async () => {
+    // Seen live 2026-09-26: a window before the job listed every earlier day as
+    // "missing", though no report can ever exist for them.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-10T12:00:00Z"));
+    try {
+      const out = parse(
+        await reachCall({ start_date: "2026-09-20", end_date: "2026-09-30", group_by: "none" }, (u) =>
+          u.endsWith("/jobs")
+            ? new Response(
+                JSON.stringify({
+                  jobs: [{ id: "j1", reportTypeId: "channel_reach_basic_a1", createTime: "2026-09-26T01:58:59Z" }],
+                }),
+              )
+            : new Response(JSON.stringify({})),
+        ),
+      );
+      // 01:58Z on 09-26 is the evening of 09-25 in Pacific time.
+      expect(out.coverage.missingDays).toEqual([
+        "2026-09-25",
+        "2026-09-26",
+        "2026-09-27",
+        "2026-09-28",
+        "2026-09-29",
+        "2026-09-30",
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("returns impression-weighted CTR per video with labelled computed fields", async () => {
     fake.videoResponse = { items: [{ id: "vidB", snippet: { title: "B", publishedAt: "2026-09-20T00:00:00Z" } }] };
     const out = parse(

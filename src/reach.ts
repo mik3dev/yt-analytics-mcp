@@ -6,7 +6,7 @@
  * The Analytics API has no impressions or CTR (see AGENTS.md); the bulk
  * `channel_reach_basic_a1` report is the only programmatic source.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { addDays, pacificDate, round } from "./shape.js";
 
@@ -48,6 +48,9 @@ export interface ReachAggregate {
 }
 
 const NUMERIC_COLUMNS = new Set(["video_thumbnail_impressions", "video_thumbnail_impressions_ctr"]);
+/** Columns the aggregation reads; a report missing any of them must fail, not sum to zero. */
+const REQUIRED_COLUMNS = ["date", "video_id", "video_thumbnail_impressions", "video_thumbnail_impressions_ctr"];
+const CSV_DATE = /^\d{8}$/;
 const MISSING_DAYS_CAP = 31;
 
 export function pickReachJob(jobs: ReportingJob[]): ReportingJob | null {
@@ -99,9 +102,13 @@ export function parseReachCsv(text: string): ReachRow[] {
   if (text.includes('"')) {
     throw new Error("Reach report contains quoted fields; this parser expects plain CSV. Inspect the cached file.");
   }
-  const lines = text.split(/\r?\n/).filter((l) => l.length > 0);
-  if (lines.length === 0) return [];
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter((l) => l.length > 0);
+  if (lines.length === 0) throw new Error("Reach report is empty: no header row.");
   const header = lines[0].split(",");
+  const absent = REQUIRED_COLUMNS.filter((c) => !header.includes(c));
+  if (absent.length) {
+    throw new Error(`Reach report header lacks ${absent.join(", ")}. Columns: ${header.join(", ")}.`);
+  }
   return lines.slice(1).map((line, i) => {
     const cells = line.split(",");
     const rowNo = i + 2;
@@ -120,6 +127,9 @@ export function parseReachCsv(text: string): ReachRow[] {
         row[h] = cells[k];
       }
     });
+    if (!CSV_DATE.test(String(row.date))) {
+      throw new Error(`Reach report row ${rowNo}: date is not YYYYMMDD ("${row.date}").`);
+    }
     return row;
   });
 }
@@ -221,9 +231,15 @@ export async function syncReports(
     const file = join(cacheDir, `${r.id}.csv`);
     if (existsSync(file) || !r.downloadUrl) continue;
     const url = assertDownloadUrl(r.downloadUrl);
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${await token()}` } });
+    // redirect "error": a redirect elsewhere must fail, never carry the token.
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${await token()}` }, redirect: "error" });
     if (!res.ok) throw new Error(`Reach report download failed (HTTP ${res.status}) for report ${r.id}.`);
-    writeFileSync(file, await res.text(), { mode: 0o600 });
+    // Whole body first, then temp file + rename: a crash never leaves a
+    // truncated CSV that would be cached forever and parse as smaller numbers.
+    const body = await res.text();
+    const tmp = `${file}.tmp`;
+    writeFileSync(tmp, body, { mode: 0o600 });
+    renameSync(tmp, file);
   }
   const index = reports.map(({ id, startTime, endTime, createTime }) => ({ id, startTime, endTime, createTime }));
   writeFileSync(join(cacheDir, "index.json"), JSON.stringify(index, null, 2) + "\n", { mode: 0o600 });

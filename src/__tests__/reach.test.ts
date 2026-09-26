@@ -90,6 +90,23 @@ describe("csvDate / parseReachCsv", () => {
       'Reach report row 2: video_thumbnail_impressions is not a number ("abc").',
     );
   });
+  it("strips a UTF-8 BOM so the first column still matches", () => {
+    const rows = parseReachCsv(`\uFEFF${HEADER}\n20260925,UC1,vidA,on_demand,SUBSCRIBED,US,10,0.1\n`);
+    expect(rows[0].date).toBe("20260925");
+  });
+  it("refuses a file with no header instead of reading it as zero rows", () => {
+    expect(() => parseReachCsv("")).toThrow("Reach report is empty: no header row.");
+  });
+  it("refuses a header missing a required column", () => {
+    expect(() => parseReachCsv("day,video_id,video_thumbnail_impressions,video_thumbnail_impressions_ctr\n")).toThrow(
+      "Reach report header lacks date. Columns: day, video_id, video_thumbnail_impressions, video_thumbnail_impressions_ctr.",
+    );
+  });
+  it("refuses a date that is not YYYYMMDD", () => {
+    expect(() => parseReachCsv(`${HEADER}\n2026-09-25,UC1,vidA,on_demand,SUBSCRIBED,US,10,0.1\n`)).toThrow(
+      'Reach report row 2: date is not YYYYMMDD ("2026-09-25").',
+    );
+  });
   it("refuses a ragged row", () => {
     expect(() => parseReachCsv(`${HEADER}\n20260925,UC1\n`)).toThrow("Reach report row 2 has 2 fields, header has 8.");
   });
@@ -233,6 +250,27 @@ describe("syncReports / loadReachWindow", () => {
     await syncReports(token, "j1", dir);
     expect(statSync(dir).mode & 0o777).toBe(0o700);
     expect(statSync(join(dir, "r1.csv")).mode & 0o777).toBe(0o600);
+  });
+
+  it("refuses redirects on the download, so the token cannot follow one", async () => {
+    const f = vi.fn(async (url: string | URL, init?: RequestInit) =>
+      String(url).includes("/media/") ? new Response(`${HEADER}\n`) : json({ reports: [reports[0]] }),
+    );
+    vi.stubGlobal("fetch", f);
+    await syncReports(token, "j1", dir);
+    const download = f.mock.calls.find((c) => String(c[0]).includes("/media/"));
+    expect(download?.[1]).toEqual({ headers: { Authorization: "Bearer TOKEN" }, redirect: "error" });
+  });
+
+  it("leaves no partial file when the body cannot be read", async () => {
+    const f = vi.fn(async (url: string | URL) =>
+      String(url).includes("/media/")
+        ? ({ ok: true, status: 200, text: async () => { throw new Error("socket hang up"); } } as unknown as Response)
+        : json({ reports: [reports[0]] }),
+    );
+    vi.stubGlobal("fetch", f);
+    await expect(syncReports(token, "j1", dir)).rejects.toThrow("socket hang up");
+    expect(readdirSync(dir).filter((n) => n.endsWith(".csv") || n.includes(".tmp"))).toEqual([]);
   });
 
   it("never requests a download from a foreign host", async () => {

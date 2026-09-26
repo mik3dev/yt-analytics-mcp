@@ -22,7 +22,7 @@ It was built to run analytics for a podcast, which is why the playlist tooling i
 
 ## Tools
 
-Ten tools. Every one is a read.
+Eleven tools. Every one is a read.
 
 | Tool | What it returns | API |
 |------|-----------------|-----|
@@ -35,11 +35,12 @@ Ten tools. Every one is a read.
 | `yt_audience_retention` | The drop-off curve for one video, ~100 points sampled down | `reports.query` `elapsedVideoTimeRatio` |
 | `yt_geography` | Views and watch time by country, with each country's share | `reports.query` `country` |
 | `yt_playlist_performance` | Playlist starts, views per start, time in playlist, saves — the podcast-series view | `reports.query` `playlist` |
+| `yt_reach` | **Fork-only.** Thumbnail impressions and impression-weighted CTR per video, day, or total, from the Reporting API reach report (needs `scripts/reporting.mjs setup` once) | Reporting API `channel_reach_basic_a1` |
 | `yt_episode_race` | **Derived.** Several videos re-indexed to days-since-their-own-publish, plus a leaderboard at the oldest age they all share | `reports.query` + publish dates |
 
 ### Side effects: there are none
 
-Every tool is `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`. All four hints are stated explicitly on all ten tools rather than left to defaults, because MCP's `destructiveHint` **defaults to true** — an omitted hint tells a client to raise a delete-grade consent prompt for reading a view count.
+Every tool is `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`. All four hints are stated explicitly on all eleven tools rather than left to defaults, because MCP's `destructiveHint` **defaults to true** — an omitted hint tells a client to raise a delete-grade consent prompt for reading a view count.
 
 That is not just a labelling convention. The HTTP client in `src/client.ts` has no write path: every method is a GET, and `ids=channel==MINE` is hardcoded rather than accepted from any tool input, so no argument an agent can pass will point this server at another channel or change anything on yours. The e2e test asserts the exact annotation object on each tool from a real `tools/list`, and includes a control proving that assertion can go red.
 
@@ -120,6 +121,25 @@ comparing videos, and diagnosing a drop — for Shorts and long-form.
 
 It needs this MCP server connected; with several channels, register one
 server per channel and the skill asks which one to read.
+
+## Reach: impressions and CTR (fork-only)
+
+Impressions and thumbnail click-through rate are not in the Analytics API;
+they come from the Reporting API's daily `channel_reach_basic_a1` report.
+
+```bash
+npm run build
+node scripts/reporting.mjs setup  --credentials ~/.config/yt-analytics/<handle>.json   # once per channel
+node scripts/reporting.mjs status --credentials ~/.config/yt-analytics/<handle>.json
+```
+
+`setup` creates a report job at Google — the only thing this fork creates
+anywhere; it does not touch the channel. The first report arrives within
+24–48 hours and data starts from the job's creation. Then `yt_reach` (read
+only) downloads new reports into `<credential dir>/reach/<job id>/` and
+returns impressions and impression-weighted CTR per video, day, or total.
+To stop, delete the job (`DELETE /v1/jobs/{id}`, e.g. from the API
+explorer). Shorts barely have thumbnail impressions — the feed shows none.
 
 ## Setup
 

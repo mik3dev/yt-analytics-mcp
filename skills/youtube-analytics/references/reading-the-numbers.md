@@ -52,14 +52,17 @@ channel's own history — say so when you use one.
   there is an intro or promise problem.
 - **Retention** — averageViewDuration in minutes, plus dips in the curve;
   convert a dip's ratio to a timestamp (ratio × video length) and name it.
-- **Impressions and click-through rate** — decide long-form reach and are
-  Studio-only. Always ask for them.
+- **Impressions and click-through rate** — decide long-form reach. Use
+  `yt_reach` when it has coverage for the window; otherwise ask Studio.
 
 ## What the API cannot see
 
 Impressions, impressions click-through rate, unique viewers, new vs.
 returning viewers, "Viewed vs. swiped away", and anything real-time. Never
-estimate these — ask for them or list them under Data gaps.
+estimate these — ask for them or list them under Data gaps. Exception: when
+the `yt_reach` tool is available and its `coverage` spans the window, it
+gives impressions and impression-weighted CTR — use it instead of asking
+Studio.
 
 ## Traps
 

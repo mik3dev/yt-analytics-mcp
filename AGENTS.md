@@ -4,7 +4,7 @@ Working notes for agents (and humans) editing this repo. Every rule below either
 
 ## What this is
 
-An MCP server wrapping the YouTube Analytics API v2. Ten tools, all reads, all scoped to the channel the OAuth credential owns.
+An MCP server wrapping the YouTube Analytics API v2. Eleven tools, all reads, all scoped to the channel the OAuth credential owns.
 
 ## The invariants
 
@@ -45,3 +45,9 @@ Verify any new dimension/metric combination against the live API before wiring i
 - `creatorContentType` filter values are case-sensitive: `shorts` works, `SHORTS` is a 400 "Invalid value". The retention report rejects the filter entirely.
 - `subscribedStatus` refuses `subscribersGained`, `subscribersLost` and `comments` (each a 400 "The query is not supported"), and cannot be combined with the `video` dimension.
 - `insightTrafficSourceDetail` needs an `insightTrafficSourceType==` filter and an explicit `-views` sort (unsorted is a 400), caps at 25 rows (50 is a 500), and has no report for SHORTS, PLAYLIST, END_SCREEN, NOTIFICATION or CAMPAIGN_CARD.
+
+## Fork note
+
+This fork adds `scripts/reporting.mjs`, which creates a Reporting API job
+(a POST) once per channel. The MCP server remains GET-only: `yt_reach`
+lists and downloads reports, and writes only its local cache.

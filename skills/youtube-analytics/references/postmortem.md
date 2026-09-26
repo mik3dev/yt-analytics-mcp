@@ -40,7 +40,9 @@ next video.
    batches of at most 10 IDs. Race this video against the 3–5 published
    just before it, `window_days` = this video's age (max 28). Where does it
    rank at the shared age?
-9. **Studio-only numbers.** Ask once: Shorts → "Viewed vs. swiped away" %;
+9. **Studio-only numbers.** If `yt_reach` has coverage for the window, take
+   impressions and CTR from it (`group_by: "video"`, `video_id`) and ask
+   Studio only for what is still missing. Otherwise ask once: Shorts → "Viewed vs. swiped away" %;
    long-form → impressions and impressions CTR.
 10. **Write** the output template from SKILL.md. Title:
     `Post-mortem: <title> (<publish date> → <end date>, <format>)`.

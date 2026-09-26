@@ -783,6 +783,26 @@ describe("yt_episode_race", () => {
     expect(fake.reportCalls[1].endDate).toBe("2026-07-07");
   });
 
+  it("starts the curve on the Pacific publish date, where Analytics puts day 0", async () => {
+    // 00:54Z on 09-15 is the evening of 09-14 in Pacific time. Verified live:
+    // the API reports this video's first views under day 2026-09-14.
+    fake.videoResponse = {
+      items: [{ id: "cHX6ff1hTmo", snippet: { title: "Ice", publishedAt: "2026-09-15T00:54:19Z" } }],
+    };
+    fake.reportResponses = [dayRows("2026-09-14", [18, 343, 25, 1])];
+    const out = parse(
+      await call("yt_episode_race", {
+        video_ids: ["cHX6ff1hTmo", "9QQA4TZvEKU"],
+        window_days: 7,
+        as_of_date: "2026-09-17",
+      }),
+    );
+    expect(fake.reportCalls[0].startDate).toBe("2026-09-14");
+    expect(fake.reportCalls[0].endDate).toBe("2026-09-17");
+    expect(out.videos[0].ageDays).toBe(3);
+    expect(out.videos[0].cumulative).toEqual([18, 361, 386, 387]);
+  });
+
   it("truncates each curve at the video's real age instead of padding a flatline", async () => {
     withPublishDates();
     fake.reportResponses = [

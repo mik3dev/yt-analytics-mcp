@@ -8,7 +8,7 @@ import {
   addDays,
   alignToAge,
   daysBetween,
-  isoDate,
+  pacificDate,
   round,
   stripNulls,
   toObjects,
@@ -944,7 +944,7 @@ export function createServer(
           });
           continue;
         }
-        const publishDate = isoDate(publishedAt);
+        const publishDate = pacificDate(publishedAt);
         const ageDays = daysBetween(publishDate, asOf);
         if (ageDays < 0) {
           videos.push({

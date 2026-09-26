@@ -437,6 +437,106 @@ describe("content_type", () => {
   });
 });
 
+describe("split_by", () => {
+  // Verified live 2026-09-25: creatorContentType and subscribedStatus work as a
+  // second dimension on channel totals and day/month series; subscribedStatus
+  // rejects subscribersGained, subscribersLost and comments (each alone is a
+  // 400 "The query is not supported").
+  it("splits channel totals by content type without a sort", async () => {
+    await call("yt_channel_overview", { ...WINDOW, metrics: ["views"], split_by: "content_type" });
+    expect(fake.reportCalls[0]).toEqual({
+      startDate: "2026-07-06",
+      endDate: "2026-08-05",
+      metrics: ["views"],
+      dimensions: ["creatorContentType"],
+      sort: undefined,
+    });
+  });
+
+  it("puts the time dimension first and keeps sorting by it", async () => {
+    await call("yt_channel_overview", { ...WINDOW, metrics: ["views"], group_by: "day", split_by: "subscribed_status" });
+    expect(fake.reportCalls[0].dimensions).toEqual(["day", "subscribedStatus"]);
+    expect(fake.reportCalls[0].sort).toBe("day");
+  });
+
+  it("splits a month series too", async () => {
+    await call("yt_channel_overview", {
+      start_date: "2026-07-01",
+      end_date: "2026-08-31",
+      metrics: ["views"],
+      group_by: "month",
+      split_by: "content_type",
+    });
+    expect(fake.reportCalls[0].dimensions).toEqual(["month", "creatorContentType"]);
+    expect(fake.reportCalls[0].sort).toBe("month");
+  });
+
+  it("drops the defaults the subscriber split cannot carry, and says which", async () => {
+    const out = parse(await call("yt_channel_overview", { ...WINDOW, split_by: "subscribed_status" }));
+    expect(fake.reportCalls[0].metrics).toEqual(["views", "estimatedMinutesWatched", "averageViewDuration"]);
+    expect(out.note).toBe(
+      "Dropped subscribersGained, subscribersLost: not available when split by subscribed_status.",
+    );
+    expect(out.splitBy).toBe("subscribed_status");
+  });
+
+  it("must-pass control: compatible metrics carry no note", async () => {
+    const out = parse(
+      await call("yt_channel_overview", { ...WINDOW, metrics: ["views", "likes"], split_by: "subscribed_status" }),
+    );
+    expect(fake.reportCalls[0].metrics).toEqual(["views", "likes"]);
+    expect(out).not.toHaveProperty("note");
+  });
+
+  it("rejects a subscriber split with nothing left to ask for", async () => {
+    const res = await call("yt_channel_overview", { ...WINDOW, metrics: ["comments"], split_by: "subscribed_status" });
+    expect(res.isError).toBe(true);
+    expect(text(res)).toContain(
+      "No requested metric is available when split by subscribed_status. Use views, engagedViews, " +
+        "estimatedMinutesWatched, averageViewDuration, averageViewPercentage, likes, or shares.",
+    );
+    expect(fake.reportCalls).toEqual([]);
+  });
+
+  it("rejects filtering and splitting by content type at once", async () => {
+    const res = await call("yt_channel_overview", { ...WINDOW, content_type: "shorts", split_by: "content_type" });
+    expect(res.isError).toBe(true);
+    expect(text(res)).toContain("split_by='content_type' and content_type are mutually exclusive — pick one.");
+    expect(fake.reportCalls).toEqual([]);
+  });
+
+  it("must-pass control: no split_by sends today's request and no splitBy key", async () => {
+    const out = parse(await call("yt_channel_overview", { ...WINDOW, metrics: ["views"] }));
+    expect(fake.reportCalls[0].dimensions).toBeUndefined();
+    expect(out).not.toHaveProperty("splitBy");
+  });
+
+  it("splits traffic sources by subscribed status, share over all rows", async () => {
+    fake.reportResponses = [
+      {
+        columnHeaders: [{ name: "insightTrafficSourceType" }, { name: "subscribedStatus" }, { name: "views" }],
+        rows: [
+          ["SHORTS", "UNSUBSCRIBED", 750],
+          ["SHORTS", "SUBSCRIBED", 150],
+          ["YT_SEARCH", "UNSUBSCRIBED", 100],
+        ],
+      },
+    ];
+    const out = parse(await call("yt_traffic_sources", { ...WINDOW, split_by: "subscribed_status" }));
+    expect(fake.reportCalls[0].dimensions).toEqual(["insightTrafficSourceType", "subscribedStatus"]);
+    expect(fake.reportCalls[0].sort).toBe("-views");
+    expect(out.totalViews).toBe(1000);
+    expect(out.rows.map((r: { shareOfViews: number }) => r.shareOfViews)).toEqual([0.75, 0.15, 0.1]);
+    expect(out.splitBy).toBe("subscribed_status");
+  });
+
+  it("rejects content_type as a traffic-source split", async () => {
+    const res = await call("yt_traffic_sources", { ...WINDOW, split_by: "content_type" });
+    expect(res.isError).toBe(true);
+    expect(fake.reportCalls).toEqual([]);
+  });
+});
+
 describe("yt_video_performance", () => {
   it("filters on a comma-joined ID list inside one clause", async () => {
     await call("yt_video_performance", {

@@ -197,6 +197,12 @@ function contentTypeFilter(contentType: string | undefined): string[] {
   return contentType ? [`creatorContentType==${contentType}`] : [];
 }
 
+/**
+ * Metrics the API refuses beside the `subscribedStatus` dimension: each alone
+ * returns 400 "The query is not supported" (verified live 2026-09-25).
+ */
+const NOT_BY_SUBSCRIBED_STATUS: readonly string[] = ["subscribersGained", "subscribersLost", "comments"];
+
 /** Metrics the audience-retention report supports. */
 export const RETENTION_METRICS = [
   "audienceWatchRatio",
@@ -427,30 +433,70 @@ export function createServer(
               "1st of a month and end_date to be a month's last day.",
           ),
         content_type: contentTypeArg,
+        split_by: z
+          .enum(["none", "content_type", "subscribed_status"])
+          .optional()
+          .default("none")
+          .describe(
+            "Optional second breakdown: 'content_type' (Shorts vs regular uploads vs " +
+              "live) or 'subscribed_status' (subscribers vs everyone else). Combines " +
+              "with group_by. subscribed_status cannot carry subscribersGained, " +
+              "subscribersLost or comments; those are dropped with a note.",
+          ),
       },
       annotations: buildAnnotations("Channel performance over a date range"),
     },
-    guard(async ({ start_date, end_date, metrics, group_by, content_type }) => {
+    guard(async ({ start_date, end_date, metrics, group_by, content_type, split_by }) => {
       assertDate("start_date", start_date);
       assertDate("end_date", end_date);
       // Google rejects a month-grouped report whose range does not sit on month
       // boundaries, with "Date range (...) does not align to chosen dimension".
       // Catching it here names the actual fix.
       if (group_by === "month") assertMonthAligned(start_date, end_date);
-      const dimensions = group_by === "none" ? undefined : [group_by];
+      if (split_by === "content_type" && content_type) {
+        throw new Error("split_by='content_type' and content_type are mutually exclusive — pick one.");
+      }
+      let requested: string[] = [...metrics];
+      let note: string | undefined;
+      if (split_by === "subscribed_status") {
+        const dropped = requested.filter((m) => NOT_BY_SUBSCRIBED_STATUS.includes(m));
+        requested = requested.filter((m) => !NOT_BY_SUBSCRIBED_STATUS.includes(m));
+        if (requested.length === 0) {
+          throw new Error(
+            "No requested metric is available when split by subscribed_status. Use views, " +
+              "engagedViews, estimatedMinutesWatched, averageViewDuration, " +
+              "averageViewPercentage, likes, or shares.",
+          );
+        }
+        if (dropped.length) {
+          note = `Dropped ${dropped.join(", ")}: not available when split by subscribed_status.`;
+        }
+      }
+      const splitDimension =
+        split_by === "content_type"
+          ? "creatorContentType"
+          : split_by === "subscribed_status"
+            ? "subscribedStatus"
+            : undefined;
+      const dims = [
+        ...(group_by === "none" ? [] : [group_by]),
+        ...(splitDimension ? [splitDimension] : []),
+      ];
       const res = await need().report({
         startDate: start_date,
         endDate: end_date,
-        metrics: [...metrics],
-        dimensions,
+        metrics: requested,
+        dimensions: dims.length ? dims : undefined,
         filters: content_type ? contentTypeFilter(content_type) : undefined,
-        sort: dimensions ? group_by : undefined,
+        sort: group_by === "none" ? undefined : group_by,
       });
       const rows = toObjects(res);
       return json({
         window: { startDate: start_date, endDate: end_date },
         ...(content_type ? { contentType: content_type } : {}),
         groupBy: group_by,
+        ...(split_by === "none" ? {} : { splitBy: split_by }),
+        ...(note ? { note } : {}),
         rowCount: rows.length,
         rows,
       });
@@ -479,6 +525,14 @@ export function createServer(
           .optional()
           .describe("Optional: restrict to a single video's traffic instead of the whole channel."),
         content_type: contentTypeArg,
+        split_by: z
+          .enum(["none", "subscribed_status"])
+          .optional()
+          .default("none")
+          .describe(
+            "Optional: 'subscribed_status' splits each source into subscribers vs " +
+              "everyone else. shareOfViews stays each row's share of the total.",
+          ),
         metrics: z
           .array(z.enum(TRAFFIC_METRICS))
           .optional()
@@ -489,7 +543,7 @@ export function createServer(
       },
       annotations: buildAnnotations("Where views came from"),
     },
-    guard(async ({ start_date, end_date, video_id, content_type, metrics }) => {
+    guard(async ({ start_date, end_date, video_id, content_type, split_by, metrics }) => {
       assertDate("start_date", start_date);
       assertDate("end_date", end_date);
       const clauses = [
@@ -501,7 +555,10 @@ export function createServer(
         startDate: start_date,
         endDate: end_date,
         metrics: [...metrics],
-        dimensions: ["insightTrafficSourceType"],
+        dimensions: [
+          "insightTrafficSourceType",
+          ...(split_by === "subscribed_status" ? ["subscribedStatus"] : []),
+        ],
         filters,
         sort: "-views",
       });
@@ -511,6 +568,7 @@ export function createServer(
         window: { startDate: start_date, endDate: end_date },
         scope: video_id ? { videoId: video_id } : { scope: "channel" },
         ...(content_type ? { contentType: content_type } : {}),
+        ...(split_by === "none" ? {} : { splitBy: split_by }),
         totalViews,
         rowCount: rows.length,
         // shareOfViews and totalViews are this server's arithmetic over the

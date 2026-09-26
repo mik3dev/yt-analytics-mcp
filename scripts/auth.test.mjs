@@ -132,3 +132,61 @@ describe("handleCallback", () => {
     });
   });
 });
+
+const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+const EXCHANGE = { clientId: "cid", clientSecret: "SECRET-XYZ", code: "abc", redirectUri: "http://127.0.0.1:5555/callback", verifier: "VERIFIER-XYZ" };
+
+describe("exchangeCode", () => {
+  it("posts the exact form and returns both tokens", async () => {
+    const fetchMock = vi.fn(async () => json({ access_token: "at", refresh_token: "rt", scope: `${A} ${D}` }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(auth.exchangeCode(EXCHANGE)).resolves.toEqual({ accessToken: "at", refreshToken: "rt" });
+    expect(fetchMock).toHaveBeenCalledWith("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body:
+        "grant_type=authorization_code&code=abc&redirect_uri=http%3A%2F%2F127.0.0.1%3A5555%2Fcallback" +
+        "&client_id=cid&client_secret=SECRET-XYZ&code_verifier=VERIFIER-XYZ",
+    });
+  });
+  it("reports Google's error fields without echoing secrets", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ error: "invalid_grant", error_description: "Bad Request" }, 400)));
+    const err = await auth.exchangeCode(EXCHANGE).catch((e) => e);
+    expect(err.message).toBe("Token exchange failed (HTTP 400): invalid_grant — Bad Request");
+    expect(err.message).not.toContain("SECRET-XYZ");
+    expect(err.message).not.toContain("VERIFIER-XYZ");
+  });
+  it("fails when no refresh_token comes back", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ access_token: "at", scope: `${A} ${D}` })));
+    await expect(auth.exchangeCode(EXCHANGE)).rejects.toThrow(
+      "Google returned no refresh_token. Revoke the app at https://myaccount.google.com/permissions and run the script again.",
+    );
+  });
+  it("fails when a scope was unticked", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ access_token: "at", refresh_token: "rt", scope: A })));
+    await expect(auth.exchangeCode(EXCHANGE)).rejects.toThrow(
+      `Consent did not grant: ${D}. Run the script again and tick every permission.`,
+    );
+  });
+});
+
+describe("fetchChannel", () => {
+  it("returns id, title and handle with a bearer token", async () => {
+    const fetchMock = vi.fn(async () => json({ items: [{ id: "UC1", snippet: { title: "Not Obvious", customUrl: "@notobvious" } }] }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(auth.fetchChannel("at")).resolves.toEqual({ id: "UC1", title: "Not Obvious", customUrl: "@notobvious" });
+    expect(fetchMock).toHaveBeenCalledWith("https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true", {
+      headers: { Authorization: "Bearer at" },
+    });
+  });
+  it("fails for an account with no channel", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ items: [] })));
+    await expect(auth.fetchChannel("at")).rejects.toThrow(
+      "This Google account has no YouTube channel. Pick the account or brand account that owns the channel.",
+    );
+  });
+  it("reports HTTP errors", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ error: { message: "API not enabled" } }, 403)));
+    await expect(auth.fetchChannel("at")).rejects.toThrow("Channel lookup failed (HTTP 403): API not enabled");
+  });
+});

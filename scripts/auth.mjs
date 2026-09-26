@@ -158,3 +158,47 @@ export function startListener(state, timeoutMs = TIMEOUT_MS) {
     });
   });
 }
+
+const CHANNELS_URI = "https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true";
+
+export async function exchangeCode({ clientId, clientSecret, code, redirectUri, verifier }) {
+  const res = await fetch(TOKEN_URI, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: redirectUri,
+      client_id: clientId,
+      client_secret: clientSecret,
+      code_verifier: verifier,
+    }).toString(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    // Only Google's own error fields: never the request body, which holds secrets.
+    const detail = [data.error, data.error_description].filter(Boolean).join(" — ") || "no details";
+    throw new Error(`Token exchange failed (HTTP ${res.status}): ${detail}`);
+  }
+  if (!data.refresh_token) {
+    throw new Error("Google returned no refresh_token. Revoke the app at https://myaccount.google.com/permissions and run the script again.");
+  }
+  const missing = grantedScopesMissing(data.scope);
+  if (missing.length) {
+    throw new Error(`Consent did not grant: ${missing.join(", ")}. Run the script again and tick every permission.`);
+  }
+  return { accessToken: data.access_token, refreshToken: data.refresh_token };
+}
+
+export async function fetchChannel(accessToken) {
+  const res = await fetch(CHANNELS_URI, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(`Channel lookup failed (HTTP ${res.status}): ${data.error?.message ?? "no details"}`);
+  }
+  const item = data.items?.[0];
+  if (!item) {
+    throw new Error("This Google account has no YouTube channel. Pick the account or brand account that owns the channel.");
+  }
+  return { id: item.id, title: item.snippet?.title ?? item.id, customUrl: item.snippet?.customUrl ?? "" };
+}

@@ -1,4 +1,7 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import * as auth from "./auth.mjs";
 
 const A = "https://www.googleapis.com/auth/yt-analytics.readonly";
@@ -188,5 +191,62 @@ describe("fetchChannel", () => {
   it("reports HTTP errors", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => json({ error: { message: "API not enabled" } }, 403)));
     await expect(auth.fetchChannel("at")).rejects.toThrow("Channel lookup failed (HTTP 403): API not enabled");
+  });
+});
+
+describe("writeCredential", () => {
+  let dir;
+  const cred = auth.buildCredential({ clientId: "cid", clientSecret: "sec", refreshToken: "rt" });
+  const expected = JSON.stringify(cred, null, 2) + "\n";
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "yt-auth-script-"));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("creates missing directories and writes the exact JSON", async () => {
+    const p = join(dir, "nested", "chan.json");
+    await auth.writeCredential(p, cred);
+    expect(readFileSync(p, "utf-8")).toBe(expected);
+    expect(readdirSync(join(dir, "nested"))).toEqual(["chan.json"]);
+  });
+
+  it.skipIf(process.platform === "win32")("writes the file 0600 and a new dir 0700", async () => {
+    const p = join(dir, "nested", "chan.json");
+    await auth.writeCredential(p, cred);
+    expect(statSync(p).mode & 0o777).toBe(0o600);
+    expect(statSync(join(dir, "nested")).mode & 0o777).toBe(0o700);
+  });
+
+  it("refuses to overwrite without --force on a non-TTY, leaving the file untouched", async () => {
+    const p = join(dir, "chan.json");
+    writeFileSync(p, "ORIGINAL");
+    await expect(auth.writeCredential(p, cred)).rejects.toThrow(`${p} already exists. Pass --force to overwrite.`);
+    expect(readFileSync(p, "utf-8")).toBe("ORIGINAL");
+    expect(readdirSync(dir)).toEqual(["chan.json"]);
+  });
+
+  it("keeps the file when the user answers no", async () => {
+    const p = join(dir, "chan.json");
+    writeFileSync(p, "ORIGINAL");
+    const confirm = vi.fn(async () => false);
+    await expect(auth.writeCredential(p, cred, { confirm })).rejects.toThrow("Not overwritten.");
+    expect(confirm).toHaveBeenCalledWith(`Overwrite ${p}? [y/N] `);
+    expect(readFileSync(p, "utf-8")).toBe("ORIGINAL");
+  });
+
+  it("overwrites when the user answers yes", async () => {
+    const p = join(dir, "chan.json");
+    writeFileSync(p, "ORIGINAL");
+    await auth.writeCredential(p, cred, { confirm: async () => true });
+    expect(readFileSync(p, "utf-8")).toBe(expected);
+  });
+
+  it("overwrites with force and leaves no temp file", async () => {
+    const p = join(dir, "chan.json");
+    writeFileSync(p, "ORIGINAL");
+    await auth.writeCredential(p, cred, { force: true });
+    expect(readFileSync(p, "utf-8")).toBe(expected);
+    expect(readdirSync(dir)).toEqual(["chan.json"]);
   });
 });

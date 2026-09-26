@@ -8,10 +8,11 @@
 // writes the refresh token in the google-auth `authorized_user` format that
 // src/auth.ts reads. The server itself still only ever reads that file.
 // Run once per channel; each file backs one MCP server entry.
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
+import { closeSync, existsSync, mkdirSync, openSync, renameSync, unlinkSync, writeSync } from "node:fs";
 import { createServer } from "node:http";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 export const SCOPES = [
   "https://www.googleapis.com/auth/yt-analytics.readonly",
@@ -201,4 +202,27 @@ export async function fetchChannel(accessToken) {
     throw new Error("This Google account has no YouTube channel. Pick the account or brand account that owns the channel.");
   }
   return { id: item.id, title: item.snippet?.title ?? item.id, customUrl: item.snippet?.customUrl ?? "" };
+}
+
+/**
+ * Write the credential so it is never readable by others, not even briefly:
+ * create a temp file with mode 0600, then rename it over the target.
+ */
+export async function writeCredential(path, credential, { force = false, confirm } = {}) {
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  if (existsSync(path) && !force) {
+    if (!confirm) throw new Error(`${path} already exists. Pass --force to overwrite.`);
+    if (!(await confirm(`Overwrite ${path}? [y/N] `))) throw new Error("Not overwritten.");
+  }
+  const tmp = `${path}.tmp-${randomBytes(6).toString("hex")}`;
+  const fd = openSync(tmp, "wx", 0o600);
+  try {
+    writeSync(fd, JSON.stringify(credential, null, 2) + "\n");
+    closeSync(fd);
+    renameSync(tmp, path);
+  } catch (err) {
+    try { closeSync(fd); } catch {}
+    try { unlinkSync(tmp); } catch {}
+    throw err;
+  }
 }
